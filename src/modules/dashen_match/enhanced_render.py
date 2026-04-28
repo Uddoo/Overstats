@@ -510,7 +510,8 @@ def render_all_players_waterfall(
     *,
     match_game_time_sec: Any = None,
 ) -> RenderedImage:
-    return _render_all_players_waterfall_readable(all_player_data, match_game_time_sec=match_game_time_sec)
+    # Keep the overshop-compatible layout here:
+    # teammates in one horizontal row, enemies in one horizontal row.
 
     from PIL import Image, ImageDraw
 
