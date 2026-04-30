@@ -5,10 +5,11 @@ import sqlite3
 import threading
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterable, List, Optional
 
 
 MATCH_STATS_DB_PATH = Path(__file__).resolve().parent / "match_stats.sqlite3"
+PLAYER_IDENTITY_TABLE = "player_identity_map"
 
 
 class IDPoolDB:
@@ -20,6 +21,7 @@ class IDPoolDB:
     """
 
     _warn_lock = threading.Lock()
+    _write_lock = threading.Lock()
     _warned_messages: set[str] = set()
 
     def __init__(self, db_path: Optional[Path] = None, *args: Any, **kwargs: Any) -> None:
@@ -44,6 +46,33 @@ class IDPoolDB:
         except Exception as exc:
             self._warn_once(f"match stats sqlite connection failed: {type(exc).__name__}: {exc}")
             return None
+
+    def _get_write_connection(self) -> Optional[sqlite3.Connection]:
+        try:
+            self.db_path.parent.mkdir(parents=True, exist_ok=True)
+            connection = sqlite3.connect(str(self.db_path), timeout=30)
+            connection.row_factory = None
+            return connection
+        except Exception as exc:
+            self._warn_once(f"match stats sqlite write connection failed: {type(exc).__name__}: {exc}")
+            return None
+
+    def _initialize_player_identity_table(self, connection: sqlite3.Connection) -> None:
+        connection.execute(
+            f"""
+            CREATE TABLE IF NOT EXISTS {PLAYER_IDENTITY_TABLE} (
+                bnetid TEXT PRIMARY KEY,
+                battletag TEXT NOT NULL,
+                battlename TEXT NOT NULL,
+                battlenum TEXT NOT NULL DEFAULT '',
+                update_time INTEGER NOT NULL
+            )
+            """
+        )
+
+    @staticmethod
+    def _escape_like_pattern(text: str) -> str:
+        return str(text or "").replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
     @staticmethod
     def _summary_rows_to_dict(rows: List[Any]) -> Dict[Any, Dict[str, Any]]:
@@ -353,6 +382,177 @@ class IDPoolDB:
             }
         return result
 
+    def upsert_player_identity_records(self, rows: Iterable[Dict[str, Any]]) -> int:
+        normalized_rows: Dict[str, tuple[str, str, str, str, int]] = {}
+        for row in rows or []:
+            if not isinstance(row, dict):
+                continue
+            bnetid = str(row.get("bnetid") or row.get("bnetId") or row.get("bnet_id") or "").strip()
+            battletag = str(row.get("battletag") or row.get("battleTag") or "").replace("\uff03", "#").strip()
+            battlename = str(row.get("battlename") or row.get("battleName") or "").strip()
+            battlenum = str(row.get("battlenum") or row.get("battleNum") or "").strip()
+            if not battletag and battlename:
+                battletag = battlename if not battlenum else f"{battlename}#{battlenum}"
+            if not battlename and battletag:
+                if "#" in battletag:
+                    battlename, battlenum = battletag.rsplit("#", 1)
+                    battlename = battlename.strip() or battletag
+                    battlenum = battlenum.strip()
+                else:
+                    battlename = battletag
+            if not bnetid or not battletag or not battlename:
+                continue
+            try:
+                update_time = int(row.get("update_time") or time.time())
+            except (TypeError, ValueError):
+                update_time = int(time.time())
+            normalized_rows[bnetid] = (bnetid, battletag, battlename, battlenum, update_time)
+
+        if not normalized_rows:
+            return 0
+
+        with self._write_lock:
+            conn = self._get_write_connection()
+            if conn is None:
+                return 0
+            try:
+                self._initialize_player_identity_table(conn)
+                conn.executemany(
+                    f"""
+                    INSERT INTO {PLAYER_IDENTITY_TABLE} (
+                        bnetid,
+                        battletag,
+                        battlename,
+                        battlenum,
+                        update_time
+                    ) VALUES (?, ?, ?, ?, ?)
+                    ON CONFLICT(bnetid) DO UPDATE SET
+                        battletag = excluded.battletag,
+                        battlename = excluded.battlename,
+                        battlenum = excluded.battlenum,
+                        update_time = excluded.update_time
+                    """,
+                    list(normalized_rows.values()),
+                )
+                conn.commit()
+                return len(normalized_rows)
+            except Exception as exc:
+                self._warn_once(f"match stats sqlite upsert_player_identity_records failed: {type(exc).__name__}: {exc}")
+                return 0
+            finally:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+
+    def search_player_identity_by_bnet_id(
+        self,
+        bnet_id: str,
+        *,
+        limit: int = 10,
+        exact_only: bool = False,
+    ) -> List[Dict[str, Any]]:
+        normalized_bnet_id = str(bnet_id or "").strip()
+        if not normalized_bnet_id:
+            return []
+
+        try:
+            normalized_limit = max(1, int(limit or 10))
+        except (TypeError, ValueError):
+            normalized_limit = 10
+
+        conn = self._get_connection()
+        if conn is None:
+            return []
+
+        escaped_bnet_id = self._escape_like_pattern(normalized_bnet_id)
+        prefix_pattern = f"{escaped_bnet_id}%"
+        contains_pattern = f"%{escaped_bnet_id}%"
+
+        try:
+            cursor = conn.cursor()
+            try:
+                if exact_only:
+                    cursor.execute(
+                        f"""
+                        SELECT
+                            bnetid,
+                            battletag,
+                            battlename,
+                            battlenum,
+                            update_time,
+                            'exact' AS match_type
+                        FROM {PLAYER_IDENTITY_TABLE}
+                        WHERE bnetid = ?
+                        ORDER BY update_time DESC, bnetid ASC
+                        LIMIT ?
+                        """,
+                        (normalized_bnet_id, normalized_limit),
+                    )
+                else:
+                    cursor.execute(
+                        f"""
+                        SELECT
+                            bnetid,
+                            battletag,
+                            battlename,
+                            battlenum,
+                            update_time,
+                            CASE
+                                WHEN bnetid = ? THEN 'exact'
+                                WHEN bnetid LIKE ? ESCAPE '\' THEN 'prefix'
+                                ELSE 'contains'
+                            END AS match_type
+                        FROM {PLAYER_IDENTITY_TABLE}
+                        WHERE
+                            bnetid = ?
+                            OR bnetid LIKE ? ESCAPE '\'
+                            OR bnetid LIKE ? ESCAPE '\'
+                        ORDER BY
+                            CASE
+                                WHEN bnetid = ? THEN 0
+                                WHEN bnetid LIKE ? ESCAPE '\' THEN 1
+                                ELSE 2
+                            END ASC,
+                            update_time DESC,
+                            bnetid ASC
+                        LIMIT ?
+                        """,
+                        (
+                            normalized_bnet_id,
+                            prefix_pattern,
+                            normalized_bnet_id,
+                            prefix_pattern,
+                            contains_pattern,
+                            normalized_bnet_id,
+                            prefix_pattern,
+                            normalized_limit,
+                        ),
+                    )
+                rows = cursor.fetchall() or []
+            finally:
+                cursor.close()
+
+            return [
+                {
+                    "bnetid": row[0],
+                    "battletag": row[1],
+                    "battlename": row[2],
+                    "battlenum": row[3],
+                    "update_time": int(row[4] or 0),
+                    "match_type": row[5],
+                }
+                for row in rows
+            ]
+        except Exception as exc:
+            self._warn_once(f"match stats sqlite search_player_identity_by_bnet_id failed: {type(exc).__name__}: {exc}")
+            return []
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
     def get_entry_ds_exact_ci_one(self, battletag: str, battlenum: Optional[int] = None) -> Optional[Dict[str, Any]]:
         return None
 
@@ -372,5 +572,4 @@ class IDPoolDB:
 
         return _noop
 
-
-__all__ = ["IDPoolDB", "MATCH_STATS_DB_PATH"]
+__all__ = ["IDPoolDB", "MATCH_STATS_DB_PATH", "PLAYER_IDENTITY_TABLE"]

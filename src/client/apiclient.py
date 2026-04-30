@@ -18,16 +18,20 @@ import httpx
 try:
     from overstats.config import DashenClientConfig, DashenCredentialConfig, get_dashen_client_config
     from overstats.config import config as overstats_config
+    from overstats.src.db.player_identity import record_identity_payload
     from overstats.src.db.request_metrics import normalize_request_metric_url
 except ModuleNotFoundError:
     try:
         from config import config as overstats_config
         from config.loader import DashenClientConfig, DashenCredentialConfig, get_dashen_client_config
+        from src.db.player_identity import record_identity_payload
         from src.db.request_metrics import normalize_request_metric_url
     except ModuleNotFoundError:
         overstats_config = None
         DashenClientConfig = Any  # type: ignore[misc,assignment]
         DashenCredentialConfig = Any  # type: ignore[misc,assignment]
+        async def record_identity_payload(payload: Any, *, db: Any = None) -> int:
+            return 0
         normalize_request_metric_url = lambda url: str(url or "").strip()  # type: ignore[assignment]
 
         def get_dashen_client_config() -> Any:
@@ -824,6 +828,18 @@ class DashenAPIClient:
         except Exception as exc:
             print(f"[overstats] failed to record upstream request metric url={url}: {exc}")
 
+    async def _record_player_identity_payload(self, url: str, payload: Any) -> None:
+        try:
+            host = (httpx.URL(url).host or "").lower()
+        except Exception:
+            host = ""
+        if host != DATAMSAPI_HOST:
+            return
+        try:
+            await record_identity_payload(payload)
+        except Exception as exc:
+            print(f"[overstats] failed to record player identity url={url}: {exc}")
+
     async def request_json(
         self,
         method: str,
@@ -872,10 +888,11 @@ class DashenAPIClient:
         except Exception:
             await self._record_upstream_metric(str(response.request.url), False)
             raise
-        await self._record_upstream_metric(
-            str(response.request.url),
-            _is_successful_upstream_payload(response.status_code, payload),
-        )
+        upstream_success = _is_successful_upstream_payload(response.status_code, payload)
+        request_url = str(response.request.url)
+        await self._record_upstream_metric(request_url, upstream_success)
+        if upstream_success:
+            await self._record_player_identity_payload(request_url, payload)
         return payload
 
     async def request_bytes(self, url: str, *, use_proxy: bool = False, **kwargs: Any) -> bytes:

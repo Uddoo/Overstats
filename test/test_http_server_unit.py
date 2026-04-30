@@ -37,6 +37,7 @@ class RegistryTests(unittest.TestCase):
         self.assertFalse(module_map["ow-shop"].requires_target)
         self.assertFalse(module_map["patch-notes"].requires_target)
         self.assertTrue(module_map["dashen-profile"].requires_target)
+        self.assertNotIn("player-identity-search", module_map)
         self.assertEqual(module_map["dashen-summary-week"].json_endpoint, "/api/v2/dashen-summary/week")
         self.assertEqual(module_map["dashen-summary-week"].image_endpoint, "/api/v2/dashen-summary/week/image")
         self.assertEqual(module_map["dashen-match-detail"].json_endpoint, "/api/v2/dashen-match/detail/replies")
@@ -113,6 +114,7 @@ class ServerRouteIntegrationTests(unittest.TestCase):
         original_request_metrics_recorder = server_module.RequestMetricsRecorder
         original_sync_service = server_module.OWHeroLeaderboardSyncService
         original_ow_shop_module = server_module.ow_shop_module
+        original_player_identity_search_module = server_module.player_identity_search_module
         original_client_recorder = server_module.dashen_api_client.request_metrics_recorder
 
         server_module.load_query_tool = lambda: {}
@@ -126,6 +128,7 @@ class ServerRouteIntegrationTests(unittest.TestCase):
         server_module.RequestMetricsRecorder = _StubRequestMetricsRecorder
         server_module.OWHeroLeaderboardSyncService = _StubSyncService
         server_module.ow_shop_module = _StubOWShopModule()
+        server_module.player_identity_search_module = _StubPlayerIdentitySearchModule()
 
         server = None
         thread = None
@@ -180,6 +183,20 @@ class ServerRouteIntegrationTests(unittest.TestCase):
                 payload = json.loads(response.read().decode("utf-8"))
                 self.assertTrue(payload["ok"])
                 self.assertEqual(payload["sections"][0]["title"], "Test Shop")
+
+            identity_body = json.dumps({"bnet_id": "12345"}).encode("utf-8")
+            identity_request = Request(
+                base_url + "/api/v2/internal/player-identity/search",
+                data=identity_body,
+                headers={"Content-Type": "application/json; charset=utf-8"},
+                method="POST",
+            )
+            with urlopen(identity_request, timeout=10) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+                self.assertTrue(payload["ok"])
+                self.assertEqual(payload["query"]["bnet_id"], "12345")
+                self.assertEqual(payload["candidates"], ["GrowlR#5632", "GrowlRAlt#9001"])
+                self.assertEqual(payload["matches"][0]["match_type"], "exact")
         finally:
             if server is not None:
                 try:
@@ -197,6 +214,7 @@ class ServerRouteIntegrationTests(unittest.TestCase):
             server_module.RequestMetricsRecorder = original_request_metrics_recorder
             server_module.OWHeroLeaderboardSyncService = original_sync_service
             server_module.ow_shop_module = original_ow_shop_module
+            server_module.player_identity_search_module = original_player_identity_search_module
             server_module.dashen_api_client.request_metrics_recorder = original_client_recorder
 
 
@@ -247,6 +265,43 @@ class _StubOWShopModule:
             output.image = _StubOWShopImage()
             return output
         return _StubOWShopOutput()
+
+
+class _StubPlayerIdentityMatch:
+    def __init__(self, bnet_id, battletag, battlename, battlenum, update_time, match_type):  # noqa: ANN001
+        self.bnet_id = bnet_id
+        self.battletag = battletag
+        self.battlename = battlename
+        self.battlenum = battlenum
+        self.update_time = update_time
+        self.match_type = match_type
+
+    def to_dict(self):
+        return {
+            "bnet_id": self.bnet_id,
+            "battletag": self.battletag,
+            "battlename": self.battlename,
+            "battlenum": self.battlenum,
+            "update_time": self.update_time,
+            "match_type": self.match_type,
+        }
+
+
+class _StubPlayerIdentitySearchOutput:
+    def __init__(self, query, matches):  # noqa: ANN001
+        self.query = query
+        self.matches = tuple(matches)
+
+
+class _StubPlayerIdentitySearchModule:
+    async def search(self, query):  # noqa: ANN001
+        return _StubPlayerIdentitySearchOutput(
+            query=query,
+            matches=(
+                _StubPlayerIdentityMatch("12345", "GrowlR#5632", "GrowlR", "5632", 1714464000, "exact"),
+                _StubPlayerIdentityMatch("123456", "GrowlRAlt#9001", "GrowlRAlt", "9001", 1714463000, "prefix"),
+            ),
+        )
 
 
 if __name__ == "__main__":

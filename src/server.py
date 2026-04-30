@@ -27,6 +27,10 @@ try:
     from overstats.src.modules.ow_shop import ow_shop_module
     from overstats.src.modules.ow_hero_leaderboard import OWHeroLeaderboardSyncService
     from overstats.src.modules.patch_notes import patch_notes_module
+    from overstats.src.modules.player_identity_search import (
+        PlayerIdentitySearchQuery,
+        player_identity_search_module,
+    )
     from overstats.src.http_server import resolve_http_ui_asset
 except ModuleNotFoundError:
     from config import APIConfig
@@ -46,6 +50,10 @@ except ModuleNotFoundError:
     from src.modules.ow_shop import ow_shop_module
     from src.modules.ow_hero_leaderboard import OWHeroLeaderboardSyncService
     from src.modules.patch_notes import patch_notes_module
+    from src.modules.player_identity_search import (
+        PlayerIdentitySearchQuery,
+        player_identity_search_module,
+    )
     from src.http_server import resolve_http_ui_asset
 
 
@@ -263,6 +271,41 @@ class OverstatsCoreService:
             "stream": stream,
             "extra": extra or {},
             "replies": replies,
+        }
+
+    async def handle_player_identity_search(self, payload: Dict[str, object]) -> Dict[str, object]:
+        lookup_bnet_id = str(
+            payload.get("bnet_id")
+            or payload.get("bnetId")
+            or payload.get("query")
+            or payload.get("target")
+            or ""
+        ).strip()
+        limit = _coerce_optional_int(payload, "limit")
+        if limit is None:
+            limit = 10
+        exact_only_value = payload.get("exact_only")
+        if exact_only_value is None:
+            exact_only_value = payload.get("exactOnly")
+        exact_only = _coerce_bool(exact_only_value, False)
+        result = await player_identity_search_module.search(
+            PlayerIdentitySearchQuery(
+                bnet_id=lookup_bnet_id,
+                limit=limit,
+                exact_only=exact_only,
+            )
+        )
+        matches = [item.to_dict() for item in result.matches]
+        return {
+            "ok": True,
+            "query": {
+                "bnet_id": result.query.bnet_id,
+                "limit": result.query.limit,
+                "exact_only": result.query.exact_only,
+            },
+            "count": len(matches),
+            "candidates": [str(item["battletag"]) for item in matches if item.get("battletag")],
+            "matches": matches,
         }
 
     def iter_query_events(
@@ -1064,6 +1107,10 @@ def create_server(config: APIConfig) -> ThreadingHTTPServer:
         def do_POST(self) -> None:
             path = self._request_path()
             self._set_metrics_context(path if path.startswith("/api/v2/") else None)
+            if path == "/api/v2/internal/player-identity/search":
+                self._handle_player_identity_search_post()
+                return
+
             if path == "/api/v2/patch-notes/image":
                 self._handle_patch_notes_image_post()
                 return
@@ -1219,6 +1266,51 @@ def create_server(config: APIConfig) -> ThreadingHTTPServer:
                     extra=extra,
                 ),
             )
+
+        def _handle_player_identity_search_post(self) -> None:
+            try:
+                payload = self._read_json_body()
+            except ValueError as exc:
+                self._send_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {
+                        "ok": False,
+                        "error": "invalid_json",
+                        "message": str(exc),
+                    },
+                )
+                return
+
+            try:
+                result = async_runner.run(service.handle_player_identity_search(payload))
+            except ModuleError as exc:
+                self._send_json(
+                    HTTPStatus(exc.status_code),
+                    {
+                        "ok": False,
+                        "error": exc.error,
+                        "message": exc.message,
+                        "hint": exc.hint,
+                        "details": exc.details,
+                    },
+                )
+                return
+            except Exception as exc:
+                self._send_json(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    {
+                        "ok": False,
+                        "error": "internal_error",
+                        "message": "Internal server error. See details.",
+                        "details": {
+                            "exception": type(exc).__name__,
+                            "message": str(exc),
+                        },
+                    },
+                )
+                return
+
+            self._send_json(HTTPStatus.OK, result)
 
         def _handle_dashen_match_post(self) -> None:
             try:

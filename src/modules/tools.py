@@ -9,19 +9,24 @@ class ModuleEntry:
     name: str
     import_path: str
     description: str
+    public: bool = True
 
 
 MODULE_REGISTRY: Dict[str, ModuleEntry] = {}
 
 
-def register_module(name: str, import_path: str, description: str = "") -> ModuleEntry:
-    entry = ModuleEntry(name=name, import_path=import_path, description=description)
+def register_module(name: str, import_path: str, description: str = "", *, public: bool = True) -> ModuleEntry:
+    entry = ModuleEntry(name=name, import_path=import_path, description=description, public=public)
     MODULE_REGISTRY[name] = entry
     return entry
 
 
 def get_module_registry() -> Dict[str, ModuleEntry]:
     return dict(MODULE_REGISTRY)
+
+
+def get_public_module_registry() -> Dict[str, ModuleEntry]:
+    return {name: entry for name, entry in MODULE_REGISTRY.items() if entry.public}
 
 
 register_module(
@@ -82,4 +87,11 @@ register_module(
     "patch_notes",
     "overstats.src.modules.patch_notes",
     "Overwatch patch notes fetcher, translator, cache manager, and PIL renderer.",
+)
+
+register_module(
+    "player_identity_search",
+    "overstats.src.modules.player_identity_search",
+    "Private local SQLite lookup from Battle.net numeric ID to candidate BattleTags.",
+    public=False,
 )

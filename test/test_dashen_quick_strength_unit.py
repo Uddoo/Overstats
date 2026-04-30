@@ -19,7 +19,13 @@ try:
         normalize_limit,
         score_to_rank,
     )
-    from overstats.src.modules.dashen_quick_strength.render import render_quick_strength
+    from overstats.src.modules.dashen_quick_strength.render import (
+        _player_name_font_key,
+        _draw_score_distribution_bars,
+        _split_range_segments,
+        _summary_rank_icon_size,
+        render_quick_strength,
+    )
     from overstats.src.modules.dashen_quick_strength.requests import DashenQuickStrengthQuery, DashenQuickStrengthRequests
     from overstats.src.modules.dashen_quick_strength.service import DashenQuickStrengthModule
 except ModuleNotFoundError:
@@ -31,7 +37,13 @@ except ModuleNotFoundError:
         normalize_limit,
         score_to_rank,
     )
-    from src.modules.dashen_quick_strength.render import render_quick_strength
+    from src.modules.dashen_quick_strength.render import (
+        _player_name_font_key,
+        _draw_score_distribution_bars,
+        _split_range_segments,
+        _summary_rank_icon_size,
+        render_quick_strength,
+    )
     from src.modules.dashen_quick_strength.requests import DashenQuickStrengthQuery, DashenQuickStrengthRequests
     from src.modules.dashen_quick_strength.service import DashenQuickStrengthModule
 
@@ -159,6 +171,58 @@ class QuickStrengthRequestTests(unittest.IsolatedAsyncioTestCase):
 
 
 class RenderSmokeTests(unittest.TestCase):
+    def test_player_name_font_key_uses_chinese_font_when_name_contains_cjk(self) -> None:
+        self.assertEqual(_player_name_font_key("Player"), "font_title")
+        self.assertEqual(_player_name_font_key("测试玩家"), "font_title_cn")
+        self.assertEqual(_player_name_font_key("测试Player"), "font_title_cn")
+
+    def test_draw_score_distribution_bars_thickens_for_duplicate_scores(self) -> None:
+        class _DummyDraw:
+            def __init__(self) -> None:
+                self.boxes = []
+
+            def rounded_rectangle(self, box, radius, fill):
+                self.boxes.append((box, radius, fill))
+
+        draw = _DummyDraw()
+        _draw_score_distribution_bars(
+            draw,
+            x=100,
+            scores=[3000, 3000, 3100],
+            y_for=lambda score: 50 if score == 3000 else 100,
+            track_width=40,
+            fill=(255, 255, 255, 255),
+            inner_top=0,
+            inner_bottom=200,
+            scale=2,
+        )
+
+        self.assertEqual(len(draw.boxes), 2)
+        duplicate_box = draw.boxes[0][0]
+        single_box = draw.boxes[1][0]
+        self.assertEqual((duplicate_box[0], duplicate_box[2]), (82, 118))
+        self.assertGreater(duplicate_box[3] - duplicate_box[1], single_box[3] - single_box[1])
+
+    def test_split_range_segments_only_keeps_overflow_outside_cutout(self) -> None:
+        self.assertEqual(
+            _split_range_segments(2300, 3500, cutout_range={"min": 2500, "max": 3200}),
+            [(3200, 3500), (2300, 2500)],
+        )
+        self.assertEqual(
+            _split_range_segments(2550, 3150, cutout_range={"min": 2500, "max": 3200}),
+            [],
+        )
+        self.assertEqual(
+            _split_range_segments(2300, 3500, cutout_range={"min": 3600, "max": 3900}),
+            [(2300, 3500)],
+        )
+
+    def test_summary_rank_icon_size_uses_wide_ratio_for_top_tiers(self) -> None:
+        self.assertEqual(_summary_rank_icon_size(5, scale=2), (108, 108))
+        self.assertEqual(_summary_rank_icon_size(6, scale=2), (144, 108))
+        self.assertEqual(_summary_rank_icon_size(7, scale=2), (144, 108))
+        self.assertEqual(_summary_rank_icon_size(8, scale=2), (144, 108))
+
     def test_render_quick_strength_returns_png_bytes(self) -> None:
         try:
             image = render_quick_strength(
