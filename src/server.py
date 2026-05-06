@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 from collections.abc import Awaitable, Callable
 import locale
 import threading
@@ -33,6 +34,7 @@ try:
         PlayerIdentitySearchQuery,
         player_identity_search_module,
     )
+    from overstats.src.modules.auto_route import auto_route_module
     from overstats.src.http_server import resolve_http_ui_asset
 except ModuleNotFoundError:
     from config import APIConfig
@@ -58,6 +60,7 @@ except ModuleNotFoundError:
         PlayerIdentitySearchQuery,
         player_identity_search_module,
     )
+    from src.modules.auto_route import auto_route_module
     from src.http_server import resolve_http_ui_asset
 
 
@@ -101,6 +104,14 @@ def _coerce_optional_int(payload: Dict[str, object], *keys: str) -> Optional[int
 
 def _is_success_status(status: HTTPStatus) -> bool:
     return 200 <= int(status) < 300
+
+
+def _image_reply_from_binary(body: bytes, content_type: str) -> Dict[str, object]:
+    return {
+        "type": "image",
+        "media_type": str(content_type or "image/png"),
+        "base64": base64.b64encode(body).decode("ascii"),
+    }
 
 
 def _build_ow_hero_pick_rate_query(payload: Dict[str, object]) -> OWHeroPickRateQuery:
@@ -383,6 +394,94 @@ class OverstatsCoreService:
             "count": len(matches),
             "candidates": [str(item["battletag"]) for item in matches if item.get("battletag")],
             "matches": matches,
+        }
+
+    async def handle_auto_route(self, payload: Dict[str, object]) -> Dict[str, object]:
+        text = str(payload.get("text") or "").strip()
+        if not text:
+            raise ModuleError(
+                error="missing_text",
+                message="text is required.",
+                status_code=400,
+            )
+
+        selection = await auto_route_module.select(text)
+        dispatch_map = {
+            "/api/v2/dashen-profile/image": lambda: self.handle_dashen_profile_image(selection.payload),
+            "/api/v2/dashen-match/replies": lambda: self.handle_dashen_match_replies(selection.payload),
+            "/api/v2/dashen-match/detail/replies": lambda: self.handle_dashen_match_detail_replies(selection.payload),
+            "/api/v2/dashen-sameplay/replies": lambda: self.handle_dashen_sameplay_replies(selection.payload),
+            "/api/v2/dashen-sameplay/detail/replies": lambda: self.handle_dashen_sameplay_detail_replies(selection.payload),
+            "/api/v2/dashen-summary/today/image": lambda: self.handle_dashen_summary_image(selection.payload, scope="today"),
+            "/api/v2/dashen-summary/yesterday/image": lambda: self.handle_dashen_summary_image(selection.payload, scope="yesterday"),
+            "/api/v2/dashen-summary/week/image": lambda: self.handle_dashen_summary_image(selection.payload, scope="week"),
+            "/api/v2/dashen-rank-history/image": lambda: self.handle_dashen_rank_history_image(selection.payload),
+            "/api/v2/dashen-quick-strength/image": lambda: self.handle_dashen_quick_strength_image(selection.payload),
+            "/api/v2/dashen-competitive-strength/image": lambda: self.handle_dashen_competitive_strength_image(selection.payload),
+            "/api/v2/ow-hero-pick-rate/image": lambda: self.handle_ow_hero_pick_rate_image(selection.payload),
+            "/api/v2/ow-shop/image": lambda: self.handle_ow_shop_image(selection.payload),
+            "/api/v2/patch-notes/image": lambda: self.handle_patch_notes_image(selection.payload),
+            "/api/v2/dashen-profile": lambda: self.handle_dashen_profile(selection.payload),
+            "/api/v2/dashen-match": lambda: self.handle_dashen_match(selection.payload),
+            "/api/v2/dashen-match/detail": lambda: self.handle_dashen_match_detail(selection.payload),
+            "/api/v2/dashen-sameplay": lambda: self.handle_dashen_sameplay(selection.payload),
+            "/api/v2/dashen-sameplay/detail": lambda: self.handle_dashen_sameplay_detail(selection.payload),
+            "/api/v2/dashen-summary/today": lambda: self.handle_dashen_summary(selection.payload, scope="today"),
+            "/api/v2/dashen-summary/yesterday": lambda: self.handle_dashen_summary(selection.payload, scope="yesterday"),
+            "/api/v2/dashen-summary/week": lambda: self.handle_dashen_summary(selection.payload, scope="week"),
+            "/api/v2/dashen-rank-history": lambda: self.handle_dashen_rank_history(selection.payload),
+            "/api/v2/dashen-quick-strength": lambda: self.handle_dashen_quick_strength(selection.payload),
+            "/api/v2/dashen-competitive-strength": lambda: self.handle_dashen_competitive_strength(selection.payload),
+            "/api/v2/ow-hero-pick-rate": lambda: self.handle_ow_hero_pick_rate(selection.payload),
+            "/api/v2/ow-shop": lambda: self.handle_ow_shop(selection.payload),
+            "/api/v2/patch-notes": lambda: self.handle_patch_notes(selection.payload),
+        }
+
+        executor = dispatch_map.get(selection.endpoint)
+        if executor is None:
+            raise ModuleError(
+                error="auto_route_invalid_tool",
+                message=f"Unsupported auto-route endpoint: {selection.endpoint}",
+                status_code=502,
+                details={"tool_name": selection.tool_name, "endpoint": selection.endpoint},
+            )
+
+        execution_payload = await executor()
+        if selection.endpoint_mode == "replies":
+            replies_payload = execution_payload if isinstance(execution_payload, dict) else {}
+            return {
+                "ok": True,
+                "selection": selection.to_dict(),
+                "execution": {
+                    "result_kind": "replies",
+                    "payload": replies_payload,
+                    "replies": list(replies_payload.get("replies") or []),
+                },
+            }
+
+        if selection.endpoint_mode == "image":
+            image_body = execution_payload
+            content_type = "image/png"
+            if isinstance(execution_payload, tuple):
+                image_body, content_type = execution_payload
+            return {
+                "ok": True,
+                "selection": selection.to_dict(),
+                "execution": {
+                    "result_kind": "replies",
+                    "payload": None,
+                    "replies": [_image_reply_from_binary(image_body, content_type)],
+                },
+            }
+
+        return {
+            "ok": True,
+            "selection": selection.to_dict(),
+            "execution": {
+                "result_kind": "json",
+                "payload": execution_payload,
+                "replies": None,
+            },
         }
 
     def iter_query_events(
@@ -1411,6 +1510,10 @@ def create_server(config: APIConfig) -> ThreadingHTTPServer:
         def do_POST(self) -> None:
             path = self._request_path()
             self._set_metrics_context(path if path.startswith("/api/v2/") else None)
+            if path == "/api/v2/auto-route":
+                self._handle_auto_route_post()
+                return
+
             if path == "/api/v2/internal/player-identity/search":
                 self._handle_player_identity_search_post()
                 return
@@ -1619,6 +1722,51 @@ def create_server(config: APIConfig) -> ThreadingHTTPServer:
 
             try:
                 result = async_runner.run(service.handle_player_identity_search(payload))
+            except ModuleError as exc:
+                self._send_json(
+                    HTTPStatus(exc.status_code),
+                    {
+                        "ok": False,
+                        "error": exc.error,
+                        "message": exc.message,
+                        "hint": exc.hint,
+                        "details": exc.details,
+                    },
+                )
+                return
+            except Exception as exc:
+                self._send_json(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    {
+                        "ok": False,
+                        "error": "internal_error",
+                        "message": "Internal server error. See details.",
+                        "details": {
+                            "exception": type(exc).__name__,
+                            "message": str(exc),
+                        },
+                    },
+                )
+                return
+
+            self._send_json(HTTPStatus.OK, result)
+
+        def _handle_auto_route_post(self) -> None:
+            try:
+                payload = self._read_json_body()
+            except ValueError as exc:
+                self._send_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {
+                        "ok": False,
+                        "error": "invalid_json",
+                        "message": str(exc),
+                    },
+                )
+                return
+
+            try:
+                result = async_runner.run(service.handle_auto_route(payload))
             except ModuleError as exc:
                 self._send_json(
                     HTTPStatus(exc.status_code),

@@ -830,6 +830,67 @@ The `/image` endpoint returns `image/png` in the same visual family as quick str
 
 ## 5. 其他公共接口
 
+### `POST /api/v2/auto-route`
+
+Use a natural-language request and let the core service choose the best existing module plus canonical payload with LLM tool calling.
+
+Request body:
+
+```json
+{
+  "text": "帮我看一下 Gulee#5667 这周总结"
+}
+```
+
+Response shape:
+
+```json
+{
+  "ok": true,
+  "selection": {
+    "tool_name": "summary_week",
+    "module_name": "dashen_summary",
+    "endpoint": "/api/v2/dashen-summary/week/image",
+    "endpoint_mode": "image",
+    "payload": {
+      "bnet_id": "Gulee#5667",
+      "full_id": "Gulee#5667"
+    }
+  },
+  "execution": {
+    "result_kind": "replies",
+    "payload": null,
+    "replies": [
+      {
+        "type": "image",
+        "media_type": "image/png",
+        "base64": "..."
+      }
+    ]
+  }
+}
+```
+
+Routing priority is fixed:
+
+- Prefer `/replies` when the selected capability provides it
+- Otherwise prefer `/image` and wrap the binary into a single image reply
+- Fall back to plain JSON only when no richer endpoint exists
+
+This API is stateless:
+
+- no reply-context lookup
+- no last-target inheritance
+- no streaming response
+
+Common auto-route errors:
+
+- `missing_text`
+- `auto_route_not_configured`
+- `auto_route_no_tool_call`
+- `auto_route_invalid_tool`
+- `auto_route_invalid_arguments`
+
 ### `POST /api/v2/query`
 
 默认流式响应（`default_stream: true`），返回 NDJSON（每行一个 JSON 对象）：

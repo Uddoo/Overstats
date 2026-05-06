@@ -102,6 +102,12 @@ register_module(
 )
 
 register_module(
+    "auto_route",
+    "overstats.src.modules.auto_route",
+    "LLM-based module and parameter router for natural-language Overstats requests.",
+)
+
+register_module(
     "player_identity_search",
     "overstats.src.modules.player_identity_search",
     "Private local SQLite lookup from Battle.net numeric ID to candidate BattleTags.",

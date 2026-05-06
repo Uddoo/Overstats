@@ -174,6 +174,9 @@ class ServerRouteIntegrationTests(unittest.TestCase):
         original_sync_service = server_module.OWHeroLeaderboardSyncService
         original_pick_rate_module = server_module.ow_hero_pick_rate_module
         original_ow_shop_module = server_module.ow_shop_module
+        original_auto_route_module = getattr(server_module, "auto_route_module", None)
+        original_dashen_summary_module = server_module.dashen_summary_module
+        original_dashen_match_module = server_module.dashen_match_module
         original_sameplay_module = server_module.dashen_sameplay_module
         original_player_identity_search_module = server_module.player_identity_search_module
         original_client_recorder = server_module.dashen_api_client.request_metrics_recorder
@@ -190,6 +193,9 @@ class ServerRouteIntegrationTests(unittest.TestCase):
         server_module.OWHeroLeaderboardSyncService = _StubSyncService
         server_module.ow_hero_pick_rate_module = _StubOWHeroPickRateModule()
         server_module.ow_shop_module = _StubOWShopModule()
+        server_module.auto_route_module = _StubAutoRouteModule()
+        server_module.dashen_summary_module = _StubDashenSummaryModule()
+        server_module.dashen_match_module = _StubDashenMatchModule()
         server_module.dashen_sameplay_module = _StubDashenSameplayModule()
         server_module.player_identity_search_module = _StubPlayerIdentitySearchModule()
 
@@ -355,6 +361,74 @@ class ServerRouteIntegrationTests(unittest.TestCase):
                 self.assertEqual(response.status, 200)
                 self.assertIn("image/png", response.headers.get("Content-Type", ""))
                 self.assertEqual(image_body, b"sameplay-main-image")
+
+            auto_route_body = json.dumps({"text": "帮我看一下本周总结"}).encode("utf-8")
+            auto_route_request = Request(
+                base_url + "/api/v2/auto-route",
+                data=auto_route_body,
+                headers={"Content-Type": "application/json; charset=utf-8"},
+                method="POST",
+            )
+            with opener.open(auto_route_request, timeout=10) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+                self.assertTrue(payload["ok"])
+                self.assertEqual(payload["selection"]["tool_name"], "summary_week")
+                self.assertEqual(payload["selection"]["endpoint_mode"], "image")
+                self.assertEqual(payload["execution"]["result_kind"], "replies")
+                self.assertIsNone(payload["execution"]["payload"])
+                self.assertEqual(payload["execution"]["replies"][0]["type"], "image")
+                self.assertEqual(
+                    base64.b64decode(payload["execution"]["replies"][0]["base64"]),
+                    b"summary-week-image",
+                )
+
+            server_module.auto_route_module.mode = "match_list"
+            with opener.open(auto_route_request, timeout=10) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+                self.assertTrue(payload["ok"])
+                self.assertEqual(payload["selection"]["endpoint"], "/api/v2/dashen-match/replies")
+                self.assertEqual(payload["execution"]["result_kind"], "replies")
+                self.assertIsNotNone(payload["execution"]["payload"])
+                self.assertEqual(payload["execution"]["replies"][0]["meta_type"], "ds_match_list")
+
+            server_module.auto_route_module.mode = "match_detail"
+            with opener.open(auto_route_request, timeout=10) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+                self.assertTrue(payload["ok"])
+                self.assertEqual(payload["selection"]["endpoint"], "/api/v2/dashen-match/detail/replies")
+                self.assertEqual(payload["selection"]["payload"]["index"], 0)
+                self.assertTrue(payload["selection"]["payload"]["show_all_heroes"])
+                self.assertTrue(payload["selection"]["payload"]["analyze"])
+                self.assertEqual(payload["execution"]["replies"][0]["meta_type"], "ds_match_detail_players")
+
+            missing_text_request = Request(
+                base_url + "/api/v2/auto-route",
+                data=json.dumps({}).encode("utf-8"),
+                headers={"Content-Type": "application/json; charset=utf-8"},
+                method="POST",
+            )
+            try:
+                opener.open(missing_text_request, timeout=10)
+                self.fail("missing_text should fail")
+            except Exception as exc:
+                payload = json.loads(exc.read().decode("utf-8"))
+                self.assertEqual(payload["error"], "missing_text")
+
+            server_module.auto_route_module.mode = "not_configured"
+            try:
+                opener.open(auto_route_request, timeout=10)
+                self.fail("not_configured should fail")
+            except Exception as exc:
+                payload = json.loads(exc.read().decode("utf-8"))
+                self.assertEqual(payload["error"], "auto_route_not_configured")
+
+            server_module.auto_route_module.mode = "invalid_tool"
+            try:
+                opener.open(auto_route_request, timeout=10)
+                self.fail("invalid_tool should fail")
+            except Exception as exc:
+                payload = json.loads(exc.read().decode("utf-8"))
+                self.assertEqual(payload["error"], "auto_route_invalid_tool")
         finally:
             if server is not None:
                 try:
@@ -373,6 +447,9 @@ class ServerRouteIntegrationTests(unittest.TestCase):
             server_module.OWHeroLeaderboardSyncService = original_sync_service
             server_module.ow_hero_pick_rate_module = original_pick_rate_module
             server_module.ow_shop_module = original_ow_shop_module
+            server_module.auto_route_module = original_auto_route_module
+            server_module.dashen_summary_module = original_dashen_summary_module
+            server_module.dashen_match_module = original_dashen_match_module
             server_module.dashen_sameplay_module = original_sameplay_module
             server_module.player_identity_search_module = original_player_identity_search_module
             server_module.dashen_api_client.request_metrics_recorder = original_client_recorder
@@ -466,6 +543,142 @@ class _StubOWHeroPickRateImage:
 class _StubOWHeroPickRateModule:
     async def query_pick_rate(self, query, *, render=False):  # noqa: ANN001
         return _StubOWHeroPickRateOutput(with_image=render)
+
+
+class _StubAutoRouteSelection:
+    def __init__(self, *, tool_name, module_name, endpoint, endpoint_mode, payload):  # noqa: ANN001
+        self.tool_name = tool_name
+        self.module_name = module_name
+        self.endpoint = endpoint
+        self.endpoint_mode = endpoint_mode
+        self.payload = payload
+
+    def to_dict(self):
+        return {
+            "tool_name": self.tool_name,
+            "module_name": self.module_name,
+            "endpoint": self.endpoint,
+            "endpoint_mode": self.endpoint_mode,
+            "payload": dict(self.payload),
+        }
+
+
+class _StubAutoRouteModule:
+    def __init__(self) -> None:
+        self.mode = "summary_week"
+
+    async def select(self, text):  # noqa: ANN001
+        if self.mode == "not_configured":
+            raise server_module.ModuleError(
+                error="auto_route_not_configured",
+                message="Auto route requires ANALYSIS_BASE_URL and ANALYSIS_API_KEY.",
+                status_code=503,
+            )
+        if self.mode == "invalid_tool":
+            raise server_module.ModuleError(
+                error="auto_route_invalid_tool",
+                message="Unsupported LLM tool: invalid_tool",
+                status_code=502,
+            )
+        if self.mode == "match_list":
+            return _StubAutoRouteSelection(
+                tool_name="dashen_match",
+                module_name="dashen_match",
+                endpoint="/api/v2/dashen-match/replies",
+                endpoint_mode="replies",
+                payload={"bnet_id": "Player#12345", "full_id": "Player#12345"},
+            )
+        if self.mode == "match_detail":
+            return _StubAutoRouteSelection(
+                tool_name="dashen_match",
+                module_name="dashen_match",
+                endpoint="/api/v2/dashen-match/detail/replies",
+                endpoint_mode="replies",
+                payload={
+                    "bnet_id": "Player#12345",
+                    "full_id": "Player#12345",
+                    "index": 0,
+                    "show_all_heroes": True,
+                    "analyze": True,
+                },
+            )
+        return _StubAutoRouteSelection(
+            tool_name="summary_week",
+            module_name="dashen_summary",
+            endpoint="/api/v2/dashen-summary/week/image",
+            endpoint_mode="image",
+            payload={"bnet_id": "Player#12345", "full_id": "Player#12345"},
+        )
+
+
+class _StubDashenSummaryResult:
+    def __init__(self, *, image_bytes=b"summary-week-image", image_media_type="image/png") -> None:
+        self.scope = "week"
+        self.title = "本周总结"
+        self.customer_token = "summary-token"
+        self.full_id = "Player#12345"
+        self.bnet_id = "12345"
+        self.worker_url = "local-module"
+        self.match_count = 10
+        self.all_match_count = 42
+        self.payload_kb = 123
+        self.timings = []
+        self.image_base64 = ""
+        self.image_bytes = image_bytes
+        self.image_media_type = image_media_type
+        self.resolved_bnet = None
+
+
+class _StubDashenSummaryModule:
+    async def query_summary(self, query):  # noqa: ANN001
+        return _StubDashenSummaryResult()
+
+
+class _StubDashenMatchResolved:
+    query = "Player#12345"
+    full_id = "Player#12345"
+    bnet_id = "12345"
+    customer_token = "match-token"
+
+
+class _StubDashenMatchModule:
+    async def query_match_list_replies(self, query):  # noqa: ANN001
+        return SimpleNamespace(
+            customer_token="match-token",
+            resolved_bnet=_StubDashenMatchResolved(),
+            replies=[
+                {
+                    "type": "meta",
+                    "meta_type": "ds_match_list",
+                    "data": {"context_type": "ds_match_list", "match_entries": [{"matchId": "m1"}]},
+                },
+                {
+                    "type": "image",
+                    "media_type": "image/png",
+                    "base64": base64.b64encode(b"match-list-image").decode("ascii"),
+                },
+            ],
+        )
+
+    async def query_match_detail_replies(self, **kwargs):  # noqa: ANN003
+        return SimpleNamespace(
+            customer_token="match-token",
+            resolved_bnet=_StubDashenMatchResolved(),
+            match_id="m1",
+            match_kind="normal",
+            replies=[
+                {
+                    "type": "meta",
+                    "meta_type": "ds_match_detail_players",
+                    "data": {"context_type": "ds_match_detail_players", "player_ids": ["Player#12345"]},
+                },
+                {
+                    "type": "image",
+                    "media_type": "image/png",
+                    "base64": base64.b64encode(b"match-detail-image").decode("ascii"),
+                },
+            ],
+        )
 
 
 class _StubDashenSameplayPlayer:
