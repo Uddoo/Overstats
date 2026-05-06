@@ -333,6 +333,66 @@ HTTP_UI_MODULE_SPECS: Tuple[HTTPUIModuleSpec, ...] = (
         ),
     ),
     HTTPUIModuleSpec(
+        id="dashen-rank-leaderboard",
+        title="Dashen \u6392\u884c\u699c",
+        description="\u67e5\u770b Dashen \u7701\u699c\uff0c\u6309\u804c\u8d23\u8fd4\u56de JSON \u6216\u699c\u5355\u56fe\u3002",
+        json_endpoint="/api/v2/dashen-rank-leaderboard",
+        image_endpoint="/api/v2/dashen-rank-leaderboard/image",
+        requires_target=False,
+        fields=(
+            HTTPUIFieldSpec(
+                id="province",
+                label="\u5730\u533a",
+                payload_key="province",
+                placeholder="\u4f8b\u5982\uff1a\u5317\u4eac",
+            ),
+            _select_field(
+                "role",
+                "\u804c\u8d23",
+                "role",
+                default="tank",
+                options=(
+                    HTTPUIFieldOption("tank", "\u91cd\u88c5"),
+                    HTTPUIFieldOption("dps", "\u8f93\u51fa"),
+                    HTTPUIFieldOption("healer", "\u652f\u63f4"),
+                    HTTPUIFieldOption("open", "\u5f00\u653e"),
+                ),
+            ),
+        ),
+    ),
+    HTTPUIModuleSpec(
+        id="dashen-hero-leaderboard",
+        title="Dashen \u82f1\u96c4\u699c",
+        description="\u67e5\u770b Dashen \u7701\u699c\u82f1\u96c4\u6392\u540d\uff0c\u652f\u6301 JSON \u6216\u699c\u5355\u56fe\u3002",
+        json_endpoint="/api/v2/dashen-hero-leaderboard",
+        image_endpoint="/api/v2/dashen-hero-leaderboard/image",
+        requires_target=False,
+        fields=(
+            HTTPUIFieldSpec(
+                id="province",
+                label="\u5730\u533a",
+                payload_key="province",
+                placeholder="\u4f8b\u5982\uff1a\u5317\u4eac",
+            ),
+            HTTPUIFieldSpec(
+                id="hero",
+                label="\u82f1\u96c4",
+                payload_key="hero",
+                placeholder="\u4f8b\u5982\uff1a\u730e\u7a7a / Tracer / heroGuid",
+            ),
+            _select_field(
+                "mode",
+                "\u961f\u5217",
+                "mode",
+                default="preset",
+                options=(
+                    HTTPUIFieldOption("preset", "\u9884\u8bbe"),
+                    HTTPUIFieldOption("open", "\u5f00\u653e"),
+                ),
+            ),
+        ),
+    ),
+    HTTPUIModuleSpec(
         id="ow-hero-pick-rate",
         title="\u82f1\u96c4\u9009\u53d6\u7387",
         description="\u67e5\u770b\u5168\u82f1\u96c4\u6700\u65b0\u9009\u53d6\u7387\u699c\u5355\uff0c\u6216\u67e5\u770b\u5355\u4e2a\u82f1\u96c4\u7684\u5386\u53f2\u9009\u53d6\u7387\u66f2\u7ebf\u3002",

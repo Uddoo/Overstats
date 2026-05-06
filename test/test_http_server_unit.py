@@ -36,10 +36,14 @@ class RegistryTests(unittest.TestCase):
         self.assertIn("dashen-match-detail", module_map)
         self.assertIn("dashen-sameplay", module_map)
         self.assertIn("dashen-sameplay-detail", module_map)
+        self.assertIn("dashen-rank-leaderboard", module_map)
+        self.assertIn("dashen-hero-leaderboard", module_map)
         self.assertIn("dashen-summary-week", module_map)
         self.assertIn("ow-hero-pick-rate", module_map)
         self.assertIn("ow-shop", module_map)
         self.assertIn("patch-notes", module_map)
+        self.assertFalse(module_map["dashen-rank-leaderboard"].requires_target)
+        self.assertFalse(module_map["dashen-hero-leaderboard"].requires_target)
         self.assertFalse(module_map["ow-hero-pick-rate"].requires_target)
         self.assertFalse(module_map["ow-shop"].requires_target)
         self.assertFalse(module_map["patch-notes"].requires_target)
@@ -52,6 +56,10 @@ class RegistryTests(unittest.TestCase):
         self.assertEqual(module_map["dashen-match-detail"].json_endpoint, "/api/v2/dashen-match/detail/replies")
         self.assertEqual(module_map["dashen-sameplay"].json_endpoint, "/api/v2/dashen-sameplay")
         self.assertEqual(module_map["dashen-sameplay-detail"].json_endpoint, "/api/v2/dashen-sameplay/detail/replies")
+        self.assertEqual(module_map["dashen-rank-leaderboard"].json_endpoint, "/api/v2/dashen-rank-leaderboard")
+        self.assertEqual(module_map["dashen-rank-leaderboard"].image_endpoint, "/api/v2/dashen-rank-leaderboard/image")
+        self.assertEqual(module_map["dashen-hero-leaderboard"].json_endpoint, "/api/v2/dashen-hero-leaderboard")
+        self.assertEqual(module_map["dashen-hero-leaderboard"].image_endpoint, "/api/v2/dashen-hero-leaderboard/image")
 
     def test_module_field_specs_match_expected_payload_keys(self) -> None:
         modules = {item.id: item for item in get_http_ui_module_specs()}
@@ -61,6 +69,8 @@ class RegistryTests(unittest.TestCase):
         match_detail_fields = {field.id: field for field in modules["dashen-match-detail"].fields}
         sameplay_fields = {field.id: field for field in modules["dashen-sameplay"].fields}
         sameplay_detail_fields = {field.id: field for field in modules["dashen-sameplay-detail"].fields}
+        rank_leaderboard_fields = {field.id: field for field in modules["dashen-rank-leaderboard"].fields}
+        hero_leaderboard_fields = {field.id: field for field in modules["dashen-hero-leaderboard"].fields}
         hero_pick_rate_fields = {field.id: field for field in modules["ow-hero-pick-rate"].fields}
 
         self.assertEqual(dashen_profile_fields["profile_mode"].payload_key, "mode")
@@ -73,6 +83,11 @@ class RegistryTests(unittest.TestCase):
         self.assertEqual(sameplay_detail_fields["match_id"].payload_key, "match_id")
         self.assertEqual(sameplay_detail_fields["show_all_heroes"].payload_key, "show_all_heroes")
         self.assertEqual(sameplay_detail_fields["analyze"].payload_key, "analyze")
+        self.assertEqual(rank_leaderboard_fields["province"].payload_key, "province")
+        self.assertEqual(rank_leaderboard_fields["role"].payload_key, "role")
+        self.assertEqual(hero_leaderboard_fields["province"].payload_key, "province")
+        self.assertEqual(hero_leaderboard_fields["hero"].payload_key, "hero")
+        self.assertEqual(hero_leaderboard_fields["mode"].payload_key, "mode")
         self.assertEqual(hero_pick_rate_fields["view"].payload_key, "view")
         self.assertEqual(hero_pick_rate_fields["game_mode"].payload_key, "game_mode")
         self.assertEqual(hero_pick_rate_fields["mmr"].payload_key, "mmr")
@@ -84,7 +99,7 @@ class RegistryTests(unittest.TestCase):
 
         self.assertIn("modules", payload)
         self.assertEqual(payload["default_module_id"], "dashen-profile")
-        self.assertGreaterEqual(len(payload["modules"]), 13)
+        self.assertGreaterEqual(len(payload["modules"]), 15)
 
 
 class AssetResponseTests(unittest.TestCase):
@@ -174,6 +189,8 @@ class ServerRouteIntegrationTests(unittest.TestCase):
         original_sync_service = server_module.OWHeroLeaderboardSyncService
         original_pick_rate_module = server_module.ow_hero_pick_rate_module
         original_ow_shop_module = server_module.ow_shop_module
+        original_rank_leaderboard_module = server_module.dashen_rank_leaderboard_module
+        original_hero_leaderboard_module = server_module.dashen_hero_leaderboard_module
         original_auto_route_module = getattr(server_module, "auto_route_module", None)
         original_dashen_summary_module = server_module.dashen_summary_module
         original_dashen_match_module = server_module.dashen_match_module
@@ -193,6 +210,8 @@ class ServerRouteIntegrationTests(unittest.TestCase):
         server_module.OWHeroLeaderboardSyncService = _StubSyncService
         server_module.ow_hero_pick_rate_module = _StubOWHeroPickRateModule()
         server_module.ow_shop_module = _StubOWShopModule()
+        server_module.dashen_rank_leaderboard_module = _StubDashenRankLeaderboardModule()
+        server_module.dashen_hero_leaderboard_module = _StubDashenHeroLeaderboardModule()
         server_module.auto_route_module = _StubAutoRouteModule()
         server_module.dashen_summary_module = _StubDashenSummaryModule()
         server_module.dashen_match_module = _StubDashenMatchModule()
@@ -281,6 +300,61 @@ class ServerRouteIntegrationTests(unittest.TestCase):
                 self.assertEqual(response.status, 200)
                 self.assertIn("image/png", response.headers.get("Content-Type", ""))
                 self.assertEqual(image_body, b"pick-rate-image")
+
+            rank_leaderboard_body = json.dumps({"region": "北京", "role": "tank"}).encode("utf-8")
+            rank_leaderboard_request = Request(
+                base_url + "/api/v2/dashen-rank-leaderboard",
+                data=rank_leaderboard_body,
+                headers={"Content-Type": "application/json; charset=utf-8"},
+                method="POST",
+            )
+            with opener.open(rank_leaderboard_request, timeout=10) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+                self.assertTrue(payload["ok"])
+                self.assertEqual(payload["province"], "北京")
+                self.assertEqual(payload["role"], "tank")
+                self.assertEqual(payload["groups"][0]["entries"][0]["user_name"], "RankOne")
+
+            rank_leaderboard_image_request = Request(
+                base_url + "/api/v2/dashen-rank-leaderboard/image",
+                data=rank_leaderboard_body,
+                headers={"Content-Type": "application/json; charset=utf-8"},
+                method="POST",
+            )
+            with opener.open(rank_leaderboard_image_request, timeout=10) as response:
+                image_body = response.read()
+                self.assertEqual(response.status, 200)
+                self.assertIn("image/png", response.headers.get("Content-Type", ""))
+                self.assertEqual(image_body, b"rank-leaderboard-image")
+
+            hero_leaderboard_body = json.dumps(
+                {"province": "北京", "hero": "猎空", "mode": "preset"}
+            ).encode("utf-8")
+            hero_leaderboard_request = Request(
+                base_url + "/api/v2/dashen-hero-leaderboard",
+                data=hero_leaderboard_body,
+                headers={"Content-Type": "application/json; charset=utf-8"},
+                method="POST",
+            )
+            with opener.open(hero_leaderboard_request, timeout=10) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+                self.assertTrue(payload["ok"])
+                self.assertEqual(payload["province"], "北京")
+                self.assertEqual(payload["mode"], "preset")
+                self.assertEqual(payload["hero"]["hero_guid"], "tracer-guid")
+                self.assertEqual(payload["groups"][0]["entries"][0]["user_name"], "TracerOne")
+
+            hero_leaderboard_image_request = Request(
+                base_url + "/api/v2/dashen-hero-leaderboard/image",
+                data=hero_leaderboard_body,
+                headers={"Content-Type": "application/json; charset=utf-8"},
+                method="POST",
+            )
+            with opener.open(hero_leaderboard_image_request, timeout=10) as response:
+                image_body = response.read()
+                self.assertEqual(response.status, 200)
+                self.assertIn("image/png", response.headers.get("Content-Type", ""))
+                self.assertEqual(image_body, b"hero-leaderboard-image")
 
             identity_body = json.dumps({"bnet_id": "12345"}).encode("utf-8")
             identity_request = Request(
@@ -447,6 +521,8 @@ class ServerRouteIntegrationTests(unittest.TestCase):
             server_module.OWHeroLeaderboardSyncService = original_sync_service
             server_module.ow_hero_pick_rate_module = original_pick_rate_module
             server_module.ow_shop_module = original_ow_shop_module
+            server_module.dashen_rank_leaderboard_module = original_rank_leaderboard_module
+            server_module.dashen_hero_leaderboard_module = original_hero_leaderboard_module
             server_module.auto_route_module = original_auto_route_module
             server_module.dashen_summary_module = original_dashen_summary_module
             server_module.dashen_match_module = original_dashen_match_module
@@ -543,6 +619,125 @@ class _StubOWHeroPickRateImage:
 class _StubOWHeroPickRateModule:
     async def query_pick_rate(self, query, *, render=False):  # noqa: ANN001
         return _StubOWHeroPickRateOutput(with_image=render)
+
+
+class _StubDashenRankLeaderboardOutput:
+    def __init__(self, *, province, role, with_image=False):  # noqa: ANN001
+        self.province = province
+        self.role = role
+        self.role_label = {
+            "tank": "重装",
+            "dps": "输出",
+            "healer": "支援",
+            "open": "开放",
+        }.get(role, role)
+        self.entry_count = 2
+        self.groups = [
+            {
+                "rank_label": "英杰5",
+                "rank_icon_level": 8,
+                "count": 2,
+                "entries": [
+                    {
+                        "rank_num": 1,
+                        "user_name": "RankOne",
+                        "match_sum": 10,
+                        "win_rate": 70.0,
+                        "wins": 7,
+                        "rank_score": 4550,
+                    },
+                    {
+                        "rank_num": 2,
+                        "user_name": "RankTwo",
+                        "match_sum": 8,
+                        "win_rate": 62.5,
+                        "wins": 5,
+                        "rank_score": 4525,
+                    },
+                ],
+            }
+        ]
+        self.image = _StubDashenRankLeaderboardImage() if with_image else None
+
+    def to_dict(self):
+        return {
+            "ok": True,
+            "province": self.province,
+            "role": self.role,
+            "role_label": self.role_label,
+            "entry_count": self.entry_count,
+            "groups": list(self.groups),
+        }
+
+
+class _StubDashenRankLeaderboardImage:
+    content = b"rank-leaderboard-image"
+
+
+class _StubDashenRankLeaderboardModule:
+    async def query_rank_leaderboard(self, query, *, render=False):  # noqa: ANN001
+        return _StubDashenRankLeaderboardOutput(province=query.province, role=query.role, with_image=render)
+
+
+class _StubDashenHeroLeaderboardOutput:
+    def __init__(self, *, province, mode, with_image=False):  # noqa: ANN001
+        self.province = province
+        self.mode = mode
+        self.mode_label = {"preset": "预设", "open": "开放"}.get(mode, mode)
+        self.hero = {
+            "hero_guid": "tracer-guid",
+            "hero_name": "猎空",
+            "hero_role": "dps",
+            "icon_url": "",
+            "accent_color": "#F59E0BFF",
+        }
+        self.entry_count = 2
+        self.groups = [
+            {
+                "rank_label": "英杰5",
+                "rank_icon_level": 8,
+                "count": 2,
+                "entries": [
+                    {
+                        "rank_num": 1,
+                        "user_name": "TracerOne",
+                        "match_sum": 10,
+                        "win_rate": 80.0,
+                        "wins": 8,
+                        "ranked_level": 4550,
+                    },
+                    {
+                        "rank_num": 2,
+                        "user_name": "TracerTwo",
+                        "match_sum": 9,
+                        "win_rate": 66.7,
+                        "wins": 6,
+                        "ranked_level": 4510,
+                    },
+                ],
+            }
+        ]
+        self.image = _StubDashenHeroLeaderboardImage() if with_image else None
+
+    def to_dict(self):
+        return {
+            "ok": True,
+            "province": self.province,
+            "mode": self.mode,
+            "mode_label": self.mode_label,
+            "hero": dict(self.hero),
+            "entry_count": self.entry_count,
+            "groups": list(self.groups),
+        }
+
+
+class _StubDashenHeroLeaderboardImage:
+    content = b"hero-leaderboard-image"
+
+
+class _StubDashenHeroLeaderboardModule:
+    async def query_hero_leaderboard(self, query, *, render=False):  # noqa: ANN001
+        return _StubDashenHeroLeaderboardOutput(province=query.province, mode=query.mode, with_image=render)
 
 
 class _StubAutoRouteSelection:

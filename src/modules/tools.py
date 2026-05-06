@@ -84,6 +84,18 @@ register_module(
 )
 
 register_module(
+    "dashen_rank_leaderboard",
+    "overstats.src.modules.dashen_rank_leaderboard",
+    "Dashen province rank leaderboard reader and PIL renderer.",
+)
+
+register_module(
+    "dashen_hero_leaderboard",
+    "overstats.src.modules.dashen_hero_leaderboard",
+    "Dashen hero-specific province leaderboard reader and PIL renderer.",
+)
+
+register_module(
     "ow_hero_pick_rate",
     "overstats.src.modules.ow_hero_pick_rate",
     "Global Overwatch hero pick-rate snapshot and history data reader plus PIL renderer.",

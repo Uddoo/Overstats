@@ -25,6 +25,14 @@ try:
         DashenCompetitiveStrengthQuery,
         dashen_competitive_strength_module,
     )
+    from overstats.src.modules.dashen_rank_leaderboard import (
+        DashenRankLeaderboardQuery,
+        dashen_rank_leaderboard_module,
+    )
+    from overstats.src.modules.dashen_hero_leaderboard import (
+        DashenHeroLeaderboardQuery,
+        dashen_hero_leaderboard_module,
+    )
     from overstats.src.modules.dashen_summary import DashenSummaryQuery, dashen_summary_module
     from overstats.src.modules.ow_hero_pick_rate import OWHeroPickRateQuery, ow_hero_pick_rate_module
     from overstats.src.modules.ow_shop import ow_shop_module
@@ -50,6 +58,14 @@ except ModuleNotFoundError:
     from src.modules.dashen_competitive_strength import (
         DashenCompetitiveStrengthQuery,
         dashen_competitive_strength_module,
+    )
+    from src.modules.dashen_rank_leaderboard import (
+        DashenRankLeaderboardQuery,
+        dashen_rank_leaderboard_module,
+    )
+    from src.modules.dashen_hero_leaderboard import (
+        DashenHeroLeaderboardQuery,
+        dashen_hero_leaderboard_module,
     )
     from src.modules.dashen_summary import DashenSummaryQuery, dashen_summary_module
     from src.modules.ow_hero_pick_rate import OWHeroPickRateQuery, ow_hero_pick_rate_module
@@ -121,6 +137,21 @@ def _build_ow_hero_pick_rate_query(payload: Dict[str, object]) -> OWHeroPickRate
         mmr=str(payload.get("mmr") or "").strip(),
         hero=str(payload.get("hero") or "").strip(),
         history_limit=payload.get("history_limit", payload.get("historyLimit")),
+    )
+
+
+def _build_dashen_rank_leaderboard_query(payload: Dict[str, object]) -> DashenRankLeaderboardQuery:
+    return DashenRankLeaderboardQuery(
+        province=str(payload.get("province") or payload.get("region") or "").strip(),
+        role=str(payload.get("role") or "").strip(),
+    )
+
+
+def _build_dashen_hero_leaderboard_query(payload: Dict[str, object]) -> DashenHeroLeaderboardQuery:
+    return DashenHeroLeaderboardQuery(
+        province=str(payload.get("province") or payload.get("region") or "").strip(),
+        hero=str(payload.get("hero") or "").strip(),
+        mode=str(payload.get("mode") or "").strip(),
     )
 
 
@@ -556,6 +587,62 @@ class OverstatsCoreService:
             raise ModuleError(
                 error="render_failed",
                 message="Hero pick-rate image was not generated.",
+                status_code=500,
+            )
+        return result.image.content
+
+    async def handle_dashen_rank_leaderboard(self, payload: Dict[str, object]) -> Dict[str, object]:
+        return await self.dashen_request_queue.run(
+            "rank_leaderboard",
+            lambda: self._handle_dashen_rank_leaderboard(payload),
+        )
+
+    async def _handle_dashen_rank_leaderboard(self, payload: Dict[str, object]) -> Dict[str, object]:
+        query = _build_dashen_rank_leaderboard_query(payload)
+        result = await dashen_rank_leaderboard_module.query_rank_leaderboard(query, render=False)
+        return result.to_dict()
+
+    async def handle_dashen_rank_leaderboard_image(self, payload: Dict[str, object]) -> bytes:
+        return await self.dashen_request_queue.run(
+            "rank_leaderboard_image",
+            lambda: self._handle_dashen_rank_leaderboard_image(payload),
+        )
+
+    async def _handle_dashen_rank_leaderboard_image(self, payload: Dict[str, object]) -> bytes:
+        query = _build_dashen_rank_leaderboard_query(payload)
+        result = await dashen_rank_leaderboard_module.query_rank_leaderboard(query, render=True)
+        if not result.image:
+            raise ModuleError(
+                error="render_failed",
+                message="Dashen rank leaderboard image was not generated.",
+                status_code=500,
+            )
+        return result.image.content
+
+    async def handle_dashen_hero_leaderboard(self, payload: Dict[str, object]) -> Dict[str, object]:
+        return await self.dashen_request_queue.run(
+            "hero_leaderboard",
+            lambda: self._handle_dashen_hero_leaderboard(payload),
+        )
+
+    async def _handle_dashen_hero_leaderboard(self, payload: Dict[str, object]) -> Dict[str, object]:
+        query = _build_dashen_hero_leaderboard_query(payload)
+        result = await dashen_hero_leaderboard_module.query_hero_leaderboard(query, render=False)
+        return result.to_dict()
+
+    async def handle_dashen_hero_leaderboard_image(self, payload: Dict[str, object]) -> bytes:
+        return await self.dashen_request_queue.run(
+            "hero_leaderboard_image",
+            lambda: self._handle_dashen_hero_leaderboard_image(payload),
+        )
+
+    async def _handle_dashen_hero_leaderboard_image(self, payload: Dict[str, object]) -> bytes:
+        query = _build_dashen_hero_leaderboard_query(payload)
+        result = await dashen_hero_leaderboard_module.query_hero_leaderboard(query, render=True)
+        if not result.image:
+            raise ModuleError(
+                error="render_failed",
+                message="Dashen hero leaderboard image was not generated.",
                 status_code=500,
             )
         return result.image.content
@@ -1534,6 +1621,22 @@ def create_server(config: APIConfig) -> ThreadingHTTPServer:
                 self._handle_ow_hero_pick_rate_post()
                 return
 
+            if path == "/api/v2/dashen-rank-leaderboard/image":
+                self._handle_dashen_rank_leaderboard_image_post()
+                return
+
+            if path == "/api/v2/dashen-rank-leaderboard":
+                self._handle_dashen_rank_leaderboard_post()
+                return
+
+            if path == "/api/v2/dashen-hero-leaderboard/image":
+                self._handle_dashen_hero_leaderboard_image_post()
+                return
+
+            if path == "/api/v2/dashen-hero-leaderboard":
+                self._handle_dashen_hero_leaderboard_post()
+                return
+
             if path == "/api/v2/ow-shop/image":
                 self._handle_ow_shop_image_post()
                 return
@@ -2263,6 +2366,186 @@ def create_server(config: APIConfig) -> ThreadingHTTPServer:
 
             try:
                 image_body = async_runner.run(service.handle_ow_hero_pick_rate_image(payload))
+            except ModuleError as exc:
+                self._send_json(
+                    HTTPStatus(exc.status_code),
+                    {
+                        "ok": False,
+                        "error": exc.error,
+                        "message": exc.message,
+                        "hint": exc.hint,
+                        "details": exc.details,
+                    },
+                )
+                return
+            except Exception as exc:
+                self._send_json(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    {
+                        "ok": False,
+                        "error": "internal_error",
+                        "message": "Internal server error. See details.",
+                        "details": {
+                            "exception": type(exc).__name__,
+                            "message": str(exc),
+                        },
+                    },
+                )
+                return
+
+            self._send_binary(HTTPStatus.OK, image_body, "image/png")
+
+        def _handle_dashen_rank_leaderboard_post(self) -> None:
+            try:
+                payload = self._read_json_body()
+            except ValueError as exc:
+                self._send_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {
+                        "ok": False,
+                        "error": "invalid_json",
+                        "message": str(exc),
+                    },
+                )
+                return
+
+            try:
+                result = async_runner.run(service.handle_dashen_rank_leaderboard(payload))
+            except ModuleError as exc:
+                self._send_json(
+                    HTTPStatus(exc.status_code),
+                    {
+                        "ok": False,
+                        "error": exc.error,
+                        "message": exc.message,
+                        "hint": exc.hint,
+                        "details": exc.details,
+                    },
+                )
+                return
+            except Exception as exc:
+                self._send_json(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    {
+                        "ok": False,
+                        "error": "internal_error",
+                        "message": "Internal server error. See details.",
+                        "details": {
+                            "exception": type(exc).__name__,
+                            "message": str(exc),
+                        },
+                    },
+                )
+                return
+
+            self._send_json(HTTPStatus.OK, result)
+
+        def _handle_dashen_rank_leaderboard_image_post(self) -> None:
+            try:
+                payload = self._read_json_body()
+            except ValueError as exc:
+                self._send_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {
+                        "ok": False,
+                        "error": "invalid_json",
+                        "message": str(exc),
+                    },
+                )
+                return
+
+            try:
+                image_body = async_runner.run(service.handle_dashen_rank_leaderboard_image(payload))
+            except ModuleError as exc:
+                self._send_json(
+                    HTTPStatus(exc.status_code),
+                    {
+                        "ok": False,
+                        "error": exc.error,
+                        "message": exc.message,
+                        "hint": exc.hint,
+                        "details": exc.details,
+                    },
+                )
+                return
+            except Exception as exc:
+                self._send_json(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    {
+                        "ok": False,
+                        "error": "internal_error",
+                        "message": "Internal server error. See details.",
+                        "details": {
+                            "exception": type(exc).__name__,
+                            "message": str(exc),
+                        },
+                    },
+                )
+                return
+
+            self._send_binary(HTTPStatus.OK, image_body, "image/png")
+
+        def _handle_dashen_hero_leaderboard_post(self) -> None:
+            try:
+                payload = self._read_json_body()
+            except ValueError as exc:
+                self._send_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {
+                        "ok": False,
+                        "error": "invalid_json",
+                        "message": str(exc),
+                    },
+                )
+                return
+
+            try:
+                result = async_runner.run(service.handle_dashen_hero_leaderboard(payload))
+            except ModuleError as exc:
+                self._send_json(
+                    HTTPStatus(exc.status_code),
+                    {
+                        "ok": False,
+                        "error": exc.error,
+                        "message": exc.message,
+                        "hint": exc.hint,
+                        "details": exc.details,
+                    },
+                )
+                return
+            except Exception as exc:
+                self._send_json(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    {
+                        "ok": False,
+                        "error": "internal_error",
+                        "message": "Internal server error. See details.",
+                        "details": {
+                            "exception": type(exc).__name__,
+                            "message": str(exc),
+                        },
+                    },
+                )
+                return
+
+            self._send_json(HTTPStatus.OK, result)
+
+        def _handle_dashen_hero_leaderboard_image_post(self) -> None:
+            try:
+                payload = self._read_json_body()
+            except ValueError as exc:
+                self._send_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {
+                        "ok": False,
+                        "error": "invalid_json",
+                        "message": str(exc),
+                    },
+                )
+                return
+
+            try:
+                image_body = async_runner.run(service.handle_dashen_hero_leaderboard_image(payload))
             except ModuleError as exc:
                 self._send_json(
                     HTTPStatus(exc.status_code),

@@ -281,6 +281,112 @@ JSON response shape:
 
 The `/image` endpoint returns `image/png` rendered with the same PIL layout as quick strength, using the competitive rose-red theme.
 
+## Dashen Rank Leaderboard API
+
+Endpoints:
+
+- `POST /api/v2/dashen-rank-leaderboard`
+- `POST /api/v2/dashen-rank-leaderboard/image`
+
+Request body:
+
+```json
+{
+  "province": "北京",
+  "role": "tank"
+}
+```
+
+`region` is also accepted as a compatibility alias for `province`. `role` supports the canonical values `tank`, `dps`, `healer`, and `open`.
+
+JSON response shape:
+
+```json
+{
+  "ok": true,
+  "province": "北京",
+  "role": "tank",
+  "role_label": "重装",
+  "entry_count": 10,
+  "groups": [
+    {
+      "rank_label": "英杰5",
+      "rank_icon_level": 8,
+      "count": 2,
+      "entries": [
+        {
+          "rank_num": 1,
+          "user_name": "PlayerA",
+          "match_sum": 10,
+          "win_rate": 70.0,
+          "wins": 7,
+          "rank_score": 4550
+        }
+      ]
+    }
+  ]
+}
+```
+
+The `/image` endpoint returns `image/png` in the same grouped leaderboard layout as the legacy overshop output, with the overstats map background blended underneath.
+
+## Dashen Hero Leaderboard API
+
+Endpoints:
+
+- `POST /api/v2/dashen-hero-leaderboard`
+- `POST /api/v2/dashen-hero-leaderboard/image`
+
+Request body:
+
+```json
+{
+  "province": "北京",
+  "hero": "猎空",
+  "mode": "preset"
+}
+```
+
+`mode` supports `preset` and `open`. `hero` supports heroGuid, hero Chinese name, hero English name, and configured aliases.
+
+JSON response shape:
+
+```json
+{
+  "ok": true,
+  "province": "北京",
+  "mode": "preset",
+  "mode_label": "预设",
+  "hero": {
+    "hero_guid": "tracer-guid",
+    "hero_name": "猎空",
+    "hero_role": "dps",
+    "icon_url": "https://...",
+    "accent_color": "#F59E0BFF"
+  },
+  "entry_count": 10,
+  "groups": [
+    {
+      "rank_label": "英杰5",
+      "rank_icon_level": 8,
+      "count": 2,
+      "entries": [
+        {
+          "rank_num": 1,
+          "user_name": "PlayerA",
+          "match_sum": 10,
+          "win_rate": 70.0,
+          "wins": 7,
+          "ranked_level": 4550
+        }
+      ]
+    }
+  ]
+}
+```
+
+The `/image` endpoint returns `image/png` using the same grouped rank-board structure as the province leaderboard, with hero color accents and hero icon decoration when cached assets are available.
+
 ## Hero Pick Rate API
 
 Endpoints:

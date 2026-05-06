@@ -101,6 +101,26 @@ curl.exe -X POST "http://127.0.0.1:18080/api/v2/dashen-rank-history/image" ^
   -d "{\"bnet_id\":\"oL1ama#5684\"}" ^
   --output dashen-rank-history.png
 
+curl.exe -X POST "http://127.0.0.1:18080/api/v2/dashen-rank-leaderboard" ^
+  -H "Content-Type: application/json; charset=utf-8" ^
+  -d "{\"province\":\"北京\",\"role\":\"tank\"}" ^
+  --output dashen-rank-leaderboard-beijing-tank.json
+
+curl.exe -X POST "http://127.0.0.1:18080/api/v2/dashen-rank-leaderboard/image" ^
+  -H "Content-Type: application/json; charset=utf-8" ^
+  -d "{\"province\":\"北京\",\"role\":\"tank\"}" ^
+  --output dashen-rank-leaderboard-beijing-tank.png
+
+curl.exe -X POST "http://127.0.0.1:18080/api/v2/dashen-hero-leaderboard" ^
+  -H "Content-Type: application/json; charset=utf-8" ^
+  -d "{\"province\":\"北京\",\"hero\":\"猎空\",\"mode\":\"preset\"}" ^
+  --output dashen-hero-leaderboard-beijing-tracer-preset.json
+
+curl.exe -X POST "http://127.0.0.1:18080/api/v2/dashen-hero-leaderboard/image" ^
+  -H "Content-Type: application/json; charset=utf-8" ^
+  -d "{\"province\":\"北京\",\"hero\":\"猎空\",\"mode\":\"preset\"}" ^
+  --output dashen-hero-leaderboard-beijing-tracer-preset.png
+
 curl.exe -X POST "http://127.0.0.1:18080/api/v2/ow-hero-pick-rate" ^
   -H "Content-Type: application/json; charset=utf-8" ^
   -d "{\"view\":\"ranking\",\"game_mode\":\"quick\",\"mmr\":\"all\"}" ^
