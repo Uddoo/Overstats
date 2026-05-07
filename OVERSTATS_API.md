@@ -137,6 +137,83 @@ Behavior notes:
 - If `OW_ESPORTS_API_KEY` is missing, the API returns `ow_esports_not_configured`.
 - If the upstream payload cannot be parsed into a match list, the API returns `ow_esports_invalid_payload`.
 
+## OW Guess API
+
+Endpoint:
+
+- `POST /api/v2/ow-guess/replies`
+
+Request body:
+
+```json
+{
+  "question_type": "hero_icon"
+}
+```
+
+Compatibility notes:
+
+- `questionType` is accepted as an alias of `question_type`.
+- Input values may be a slug, legacy numeric ID, or a Chinese label.
+- First release supports:
+  - `map_music`
+  - `hero_icon`
+  - `skill_icon_hero`
+  - `perk_icon_hero`
+  - `map_image`
+  - `ult_voice`
+  - `hero_silhouette`
+  - `skill_icon_name`
+  - `hero_description`
+- `hero_conversation` is intentionally unavailable and returns `ow_guess_type_unavailable`.
+
+JSON response shape:
+
+```json
+{
+  "ok": true,
+  "generated_at": "2026-05-07 12:34:56",
+  "question_type": "hero_icon",
+  "question_type_id": 2,
+  "question_type_label": "英雄图标",
+  "question_id": "0x02E0000000000002",
+  "difficulty": 3,
+  "recommended_wait_seconds": 30,
+  "question": {
+    "prompt_text": "请尝试猜出英雄图标对应的英雄",
+    "media_kind": "image",
+    "hint_steps": []
+  },
+  "answer": {
+    "canonical": "死神",
+    "aliases": ["死神", "Reaper"]
+  },
+  "replies": [
+    {
+      "type": "text",
+      "data": "请尝试猜出英雄图标对应的英雄"
+    },
+    {
+      "type": "image",
+      "media_type": "image/png",
+      "base64": "<base64>"
+    }
+  ]
+}
+```
+
+Behavior notes:
+
+- This endpoint is bot-facing and returns the question, the answer, and a recommended wait duration in one call.
+- The API does not send staged hints, sleep, or manage game state.
+- `hero_description` returns the full hint plan in `question.hint_steps`; bot plugins decide when to reveal each hint.
+- `replies` may contain `text`, `image`, or `audio` items.
+- `map_music` and `hero_description` recommend `60` seconds; other supported types recommend `30` seconds.
+- `hero_icon`, `map_image`, and `hero_silhouette` rebuild their remote image candidate lists from `res/query_tool.json` on every service startup.
+- Local-only assets such as map music, ult voice, hero icon packs, and silhouette backgrounds are read from the optional external asset pack root configured by `OW_GUESS_ASSET_ROOT`.
+- If the optional asset pack is not installed, local-asset-dependent question types return `ow_guess_type_unavailable`.
+- Remote image caches are also written under the external OW guess asset root instead of inside the main project tree.
+
 ## Patch Notes API
 
 Endpoints:

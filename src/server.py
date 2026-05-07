@@ -36,6 +36,7 @@ try:
     from overstats.src.modules.dashen_summary import DashenSummaryQuery, dashen_summary_module
     from overstats.src.modules.ow_hero_pick_rate import OWHeroPickRateQuery, ow_hero_pick_rate_module
     from overstats.src.modules.ow_esports import ow_esports_module
+    from overstats.src.modules.ow_guess import OWGuessQuery, ow_guess_module
     from overstats.src.modules.ow_shop import ow_shop_module
     from overstats.src.modules.ow_hero_leaderboard import OWHeroLeaderboardSyncService
     from overstats.src.modules.patch_notes import patch_notes_module
@@ -71,6 +72,7 @@ except ModuleNotFoundError:
     from src.modules.dashen_summary import DashenSummaryQuery, dashen_summary_module
     from src.modules.ow_hero_pick_rate import OWHeroPickRateQuery, ow_hero_pick_rate_module
     from src.modules.ow_esports import ow_esports_module
+    from src.modules.ow_guess import OWGuessQuery, ow_guess_module
     from src.modules.ow_shop import ow_shop_module
     from src.modules.ow_hero_leaderboard import OWHeroLeaderboardSyncService
     from src.modules.patch_notes import patch_notes_module
@@ -140,6 +142,13 @@ def _build_ow_hero_pick_rate_query(payload: Dict[str, object]) -> OWHeroPickRate
         hero=str(payload.get("hero") or "").strip(),
         history_limit=payload.get("history_limit", payload.get("historyLimit")),
     )
+
+
+def _build_ow_guess_query(payload: Dict[str, object]) -> OWGuessQuery:
+    raw_question_type = payload.get("question_type")
+    if raw_question_type is None:
+        raw_question_type = payload.get("questionType")
+    return OWGuessQuery(question_type=str(raw_question_type or "").strip())
 
 
 def _build_dashen_rank_leaderboard_query(payload: Dict[str, object]) -> DashenRankLeaderboardQuery:
@@ -572,6 +581,11 @@ class OverstatsCoreService:
                 status_code=500,
             )
         return result.image.content
+
+    async def handle_ow_guess_replies(self, payload: Dict[str, object]) -> Dict[str, object]:
+        query = _build_ow_guess_query(payload)
+        result = await ow_guess_module.query_guess_replies(query)
+        return result.to_dict()
 
     async def handle_patch_notes(self, payload: Dict[str, object]) -> Dict[str, object]:
         patch_kind = payload.get("patch_kind")
@@ -1671,6 +1685,10 @@ def create_server(config: APIConfig) -> ThreadingHTTPServer:
                 self._handle_ow_esports_post()
                 return
 
+            if path == "/api/v2/ow-guess/replies":
+                self._handle_ow_guess_replies_post()
+                return
+
             if path == "/api/v2/dashen-summary/week/image":
                 self._handle_dashen_summary_image_post("week")
                 return
@@ -2330,6 +2348,51 @@ def create_server(config: APIConfig) -> ThreadingHTTPServer:
                 return
 
             self._send_binary(HTTPStatus.OK, image_body, "image/png")
+
+        def _handle_ow_guess_replies_post(self) -> None:
+            try:
+                payload = self._read_json_body()
+            except ValueError as exc:
+                self._send_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {
+                        "ok": False,
+                        "error": "invalid_json",
+                        "message": str(exc),
+                    },
+                )
+                return
+
+            try:
+                result = async_runner.run(service.handle_ow_guess_replies(payload))
+            except ModuleError as exc:
+                self._send_json(
+                    HTTPStatus(exc.status_code),
+                    {
+                        "ok": False,
+                        "error": exc.error,
+                        "message": exc.message,
+                        "hint": exc.hint,
+                        "details": exc.details,
+                    },
+                )
+                return
+            except Exception as exc:
+                self._send_json(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    {
+                        "ok": False,
+                        "error": "internal_error",
+                        "message": "Internal server error. See details.",
+                        "details": {
+                            "exception": type(exc).__name__,
+                            "message": str(exc),
+                        },
+                    },
+                )
+                return
+
+            self._send_json(HTTPStatus.OK, result)
 
         def _handle_patch_notes_post(self) -> None:
             try:
