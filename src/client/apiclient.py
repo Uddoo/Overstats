@@ -39,8 +39,10 @@ except ModuleNotFoundError:
 
 if TYPE_CHECKING:
     try:
+        from overstats.src.db.match_detail_recorder import MatchDetailRecorder
         from overstats.src.db.request_metrics import RequestMetricsRecorder
     except ModuleNotFoundError:
+        from src.db.match_detail_recorder import MatchDetailRecorder
         from src.db.request_metrics import RequestMetricsRecorder
 
 
@@ -794,6 +796,7 @@ class DashenAPIClient:
         *,
         client_config: Optional[DashenClientConfig] = None,
         credential_pool: Optional[DashenCredentialPool] = None,
+        match_detail_recorder: Optional["MatchDetailRecorder"] = None,
         request_metrics_recorder: Optional["RequestMetricsRecorder"] = None,
         dts: Optional[int] = None,
         role_id: Optional[int] = None,
@@ -801,6 +804,7 @@ class DashenAPIClient:
         token: Optional[str] = None,
     ) -> None:
         self.client_config = client_config or CLIENT_CONFIG
+        self.match_detail_recorder = match_detail_recorder
         self.request_metrics_recorder = request_metrics_recorder
         self.netease_client = netease_client or _build_default_netease_client()
         self.proxy_client = proxy_client or SafeClient(
@@ -852,6 +856,25 @@ class DashenAPIClient:
             await record_identity_payload(payload)
         except Exception as exc:
             print(f"[overstats] failed to record player identity url={url}: {exc}")
+
+    async def _record_match_detail_payload(self, url: str, payload: Any) -> None:
+        recorder = self.match_detail_recorder
+        if recorder is None or not isinstance(payload, dict):
+            return
+        try:
+            parsed_url = httpx.URL(str(url or ""))
+        except Exception:
+            return
+        path = str(parsed_url.path or "").rstrip("/")
+        host = (parsed_url.host or "").lower()
+        if host != DATAMSAPI_HOST or path != "/v1/a19ld5tool/customer/queryMatchInfo":
+            return
+        if payload.get("code") != 0 or not isinstance(payload.get("data"), dict):
+            return
+        try:
+            await recorder.enqueue(str(url or ""), payload)
+        except Exception as exc:
+            print(f"[overstats] failed to record match detail url={url}: {exc}")
 
     async def request_json(
         self,
@@ -906,6 +929,7 @@ class DashenAPIClient:
         await self._record_upstream_metric(request_url, upstream_success)
         if upstream_success:
             await self._record_player_identity_payload(request_url, payload)
+            await self._record_match_detail_payload(request_url, payload)
         return payload
 
     async def request_bytes(self, url: str, *, use_proxy: bool = False, **kwargs: Any) -> bytes:

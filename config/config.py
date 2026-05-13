@@ -64,6 +64,8 @@ OW_HERO_LEADERBOARD_CN_SEASON = 2
 # You can also provide the full /chat/completions endpoint directly.
 ANALYSIS_BASE_URL = ""
 ANALYSIS_API_KEY = "replace-with-your-analysis-api-key"
+# Optional proxy for OpenAI official and Google OpenAI-compatible endpoints.
+ANALYSIS_PROXY = ""
 
 # ANALYSIS_GOOGLE_MODEL = "gemini-3.1-flash-lite-preview"
 #ANALYSIS_DEEPSEEK_MODEL = "deepseek-chat"

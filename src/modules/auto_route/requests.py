@@ -13,6 +13,9 @@ except ModuleNotFoundError:
     from config import config as app_config
     from src.modules.errors import ModuleError
 
+from ..analysis_common import build_async_client as build_analysis_async_client
+from ..analysis_common import get_analysis_proxy
+
 
 AUTO_ROUTE_TIMEOUT_SECONDS = 60.0
 
@@ -169,7 +172,8 @@ class AutoRouteRequests:
             "Content-Type": "application/json",
         }
 
-        async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
+        proxy_url = get_analysis_proxy(base_url)
+        async with build_analysis_async_client(timeout=self.timeout_seconds, proxy_url=proxy_url) as client:
             response = await client.post(_chat_completion_url(base_url), json=payload, headers=headers)
             response.raise_for_status()
             response_payload = response.json()
