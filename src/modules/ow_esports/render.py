@@ -7,6 +7,11 @@ import hashlib
 from pathlib import Path
 from typing import Any, Mapping, Optional, Sequence
 
+try:
+    from overstats.src.modules.font_resolver import load_font
+except ModuleNotFoundError:
+    from src.modules.font_resolver import load_font
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 RES_DIR = PROJECT_ROOT / "res"
@@ -437,41 +442,22 @@ def _format_countdown(start_timestamp: Any) -> str:
 
 
 def _load_font(size: int, *, bold: bool) -> Any:
-    from PIL import ImageFont
-
-    candidates = []
     if bold:
-        candidates.extend(
-            [
-                "C:/Windows/Fonts/msyhbd.ttc",
-                "C:/Windows/Fonts/simhei.ttf",
-                RES_DIR / "GrotaRoundedExtraBold.otf",
-                RES_DIR / "BigNoodleToo.ttf",
-            ]
+        return load_font(
+            size,
+            name="simhei.ttf",
+            fallback="GrotaRoundedExtraBold.otf",
+            prefer_cjk=True,
+            bold=True,
+            extra=("BigNoodleToo.ttf",),
         )
-    else:
-        candidates.extend(
-            [
-                "C:/Windows/Fonts/msyh.ttc",
-                "C:/Windows/Fonts/simhei.ttf",
-                RES_DIR / "en.ttf",
-                RES_DIR / "en2.ttf",
-            ]
-        )
-
-    candidates.extend(
-        [
-            "C:/Windows/Fonts/arial.ttf",
-            "C:/Windows/Fonts/msyh.ttc",
-            "C:/Windows/Fonts/simhei.ttf",
-        ]
+    return load_font(
+        size,
+        name="simhei.ttf",
+        fallback="en.ttf",
+        prefer_cjk=True,
+        extra=("en2.ttf",),
     )
-    for candidate in candidates:
-        try:
-            return ImageFont.truetype(str(candidate), size)
-        except Exception:
-            continue
-    return ImageFont.load_default()
 
 
 def _measure_text(draw: Any, text: str, font: Any) -> tuple[int, int]:

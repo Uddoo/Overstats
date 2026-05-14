@@ -8,6 +8,11 @@ from typing import Any, Dict, Sequence
 
 from ...constants.backgrounds import build_random_map_background
 
+try:
+    from overstats.src.modules.font_resolver import load_font
+except ModuleNotFoundError:
+    from src.modules.font_resolver import load_font
+
 
 def _resolve_resource_dir() -> Path:
     here = Path(__file__).resolve()
@@ -214,25 +219,12 @@ def _load_fonts() -> Dict[str, Any]:
 
 
 def _load_font(name: str, size: int, *, windows_fallback: bool = False) -> Any:
-    from PIL import ImageFont
-
-    candidates = [RESOURCE_DIR / name]
-    if windows_fallback:
-        windir = os.getenv("WINDIR")
-        if windir:
-            fonts_dir = Path(windir) / "Fonts"
-            if name.lower() == "simhei.ttf":
-                candidates.extend([fonts_dir / "simhei.ttf", fonts_dir / "msyh.ttc", fonts_dir / "msyhbd.ttc"])
-            else:
-                candidates.extend([fonts_dir / name, fonts_dir / "arial.ttf"])
-    for candidate in candidates:
-        if not candidate.exists():
-            continue
-        try:
-            return ImageFont.truetype(str(candidate), size)
-        except Exception:
-            continue
-    return ImageFont.load_default()
+    return load_font(
+        size,
+        name=name,
+        prefer_cjk=windows_fallback and name.lower() == "simhei.ttf",
+        bold=windows_fallback and name.lower() == "simhei.ttf",
+    )
 
 
 def _measure_text(draw: Any, text: str, font: Any) -> int:

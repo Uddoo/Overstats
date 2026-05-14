@@ -9,21 +9,14 @@ from ...constants.backgrounds import build_random_map_background
 
 from .requests import OWShopSection
 
+try:
+    from overstats.src.modules.font_resolver import load_font
+except ModuleNotFoundError:
+    from src.modules.font_resolver import load_font
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 RES_DIR = PROJECT_ROOT / "res"
-WINDOWS_FONT_CANDIDATES = (
-    "C:/Windows/Fonts/msyh.ttc",
-    "C:/Windows/Fonts/msyhbd.ttc",
-    "C:/Windows/Fonts/simhei.ttf",
-    "C:/Windows/Fonts/simsun.ttc",
-)
-LOCAL_FONT_CANDIDATES = (
-    RES_DIR / "en2.ttf",
-    RES_DIR / "en.ttf",
-    RES_DIR / "GrotaRoundedExtraBold.otf",
-    RES_DIR / "BigNoodleToo.ttf",
-)
 BACKGROUND_RGB = (25, 30, 40)
 CARD_BG_RGB = (50, 60, 75)
 TEXT_MUTED = (190, 198, 210)
@@ -33,8 +26,9 @@ HUGE_BUNDLE_KEYWORD = "超级礼包"
 
 
 MAX_RENDER_BYTES = 5 * 1024 * 1024
-JPEG_QUALITY_STEPS = (92, 88, 84, 80, 76, 72, 68, 64)
-JPEG_SCALE_STEPS = (1.0, 0.95, 0.9, 0.85, 0.8, 0.75, 0.7, 0.65)
+PNG_SCALE_STEPS = (0.985, 0.97, 0.955, 0.94, 0.925, 0.91)
+JPEG_QUALITY_STEPS = (96, 94, 92, 90, 88, 86, 84, 82)
+JPEG_SCALE_STEPS = (1.0, 0.985, 0.97, 0.955, 0.94, 0.925, 0.91, 0.895, 0.88, 0.865, 0.85)
 
 @dataclass(frozen=True)
 class RenderedImage:
@@ -245,20 +239,20 @@ def _encode_rendered_image(image: Any, *, max_bytes: int = MAX_RENDER_BYTES) -> 
 def _compress_rendered_image(image: Any, *, max_bytes: int, fallback_bytes: bytes) -> RenderedImage:
     best_bytes = fallback_bytes
     best_media_type = "image/png"
-    source_width = max(1, int(image.width))
-    source_height = max(1, int(image.height))
+    scaled_images: dict[float, Any] = {1.0: image}
 
-    for scale in JPEG_SCALE_STEPS:
-        candidate = image
-        if scale != 1.0:
-            candidate = image.resize(
-                (
-                    max(1, int(source_width * scale)),
-                    max(1, int(source_height * scale)),
-                ),
-                _resampling_lanczos(),
-            )
-        for quality in JPEG_QUALITY_STEPS:
+    for scale in PNG_SCALE_STEPS:
+        candidate = _scaled_image(image, scale=scale, cache=scaled_images)
+        png_bytes = _save_png_bytes(candidate)
+        if len(png_bytes) < len(best_bytes):
+            best_bytes = png_bytes
+            best_media_type = "image/png"
+        if len(png_bytes) <= max_bytes:
+            return RenderedImage(content=png_bytes, media_type="image/png")
+
+    for quality in JPEG_QUALITY_STEPS:
+        for scale in JPEG_SCALE_STEPS:
+            candidate = _scaled_image(image, scale=scale, cache=scaled_images)
             jpeg_bytes = _save_jpeg_bytes(candidate, quality=quality)
             if len(jpeg_bytes) < len(best_bytes):
                 best_bytes = jpeg_bytes
@@ -267,6 +261,22 @@ def _compress_rendered_image(image: Any, *, max_bytes: int, fallback_bytes: byte
                 return RenderedImage(content=jpeg_bytes, media_type="image/jpeg")
 
     return RenderedImage(content=best_bytes, media_type=best_media_type)
+
+
+def _scaled_image(image: Any, *, scale: float, cache: dict[float, Any]) -> Any:
+    if scale in cache:
+        return cache[scale]
+    source_width = max(1, int(image.width))
+    source_height = max(1, int(image.height))
+    scaled = image.resize(
+        (
+            max(1, int(source_width * scale)),
+            max(1, int(source_height * scale)),
+        ),
+        _resampling_lanczos(),
+    )
+    cache[scale] = scaled
+    return scaled
 
 
 def _save_png_bytes(image: Any) -> bytes:
@@ -281,20 +291,20 @@ def _save_jpeg_bytes(image: Any, *, quality: int) -> bytes:
         image.save(
             output,
             format="JPEG",
-            quality=max(40, int(quality)),
-            optimize=False,
-            progressive=False,
-            subsampling=1,
+            quality=max(70, int(quality)),
+            optimize=True,
+            progressive=True,
+            subsampling=0,
         )
     except OSError:
         output = BytesIO()
         image.save(
             output,
             format="JPEG",
-            quality=max(40, int(quality) - 6),
+            quality=max(70, int(quality) - 4),
             optimize=False,
             progressive=False,
-            subsampling=1,
+            subsampling=0,
         )
     return output.getvalue()
 
@@ -348,15 +358,13 @@ def _text_width(text: str, font: Any) -> float:
 
 
 def _load_font(size: int) -> Any:
-    from PIL import ImageFont
-
-    candidates = list(WINDOWS_FONT_CANDIDATES) + [str(path) for path in LOCAL_FONT_CANDIDATES]
-    for candidate in candidates:
-        try:
-            return ImageFont.truetype(candidate, size)
-        except Exception:
-            continue
-    return ImageFont.load_default()
+    return load_font(
+        size,
+        name="simhei.ttf",
+        fallback="en2.ttf",
+        prefer_cjk=True,
+        extra=("en.ttf", "GrotaRoundedExtraBold.otf", "BigNoodleToo.ttf"),
+    )
 
 
 def _resampling_lanczos() -> Any:

@@ -24,6 +24,8 @@ DEFAULT_CACHE_ROOT = PROJECT_ROOT / "cache" / "ow_shop"
 CACHE_TTL_SECONDS = 15 * 60
 OW_SHOP_UNAVAILABLE_MESSAGE = "OW 商店数据暂时不可用。"
 
+RENDER_CACHE_VERSION = "v2"
+
 
 @dataclass(frozen=True)
 class OWShopOutput:
@@ -55,8 +57,9 @@ class OWShopModule:
         self.time_provider = time_provider or time.time
         self.renderer = renderer or render_ow_shop
         self.data_cache_path = self.cache_root / "shop_data.json"
-        self.image_cache_path = self.cache_root / "shop_image.rendered"
-        self.legacy_image_cache_paths = (
+        self.image_cache_path = self.cache_root / f"shop_image.{RENDER_CACHE_VERSION}.rendered"
+        self.stale_image_cache_paths = (
+            self.cache_root / "shop_image.rendered",
             self.cache_root / "shop_image.png",
             self.cache_root / "shop_image.jpg",
             self.cache_root / "shop_image.jpeg",
@@ -178,7 +181,7 @@ class OWShopModule:
         return payload
 
     def _load_cached_render(self) -> Optional[RenderedImage]:
-        for cache_path in (self.image_cache_path, *self.legacy_image_cache_paths):
+        for cache_path in (self.image_cache_path,):
             if not cache_path.exists():
                 continue
             try:
@@ -196,7 +199,7 @@ class OWShopModule:
         return None
 
     def _delete_stale_render_cache(self) -> None:
-        for cache_path in (self.image_cache_path, *self.legacy_image_cache_paths):
+        for cache_path in (self.image_cache_path, *self.stale_image_cache_paths):
             try:
                 cache_path.unlink(missing_ok=True)
             except OSError:
