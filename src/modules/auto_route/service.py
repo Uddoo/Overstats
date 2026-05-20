@@ -41,6 +41,7 @@ AUTO_ROUTE_SUPPORTED_COMMANDS = (
     "守望赛事",
 )
 AUTO_ROUTE_SUPPORTED_COMMANDS = AUTO_ROUTE_SUPPORTED_COMMANDS + ("威能 安娜",)
+AUTO_ROUTE_SUPPORTED_COMMANDS = AUTO_ROUTE_SUPPORTED_COMMANDS + ("英雄百科 猎空", "英雄百科 猎空 闪现最多几层")
 AUTO_ROUTE_GAME_MODE_ALIASES = {
     "快速": "quick",
     "quick": "quick",
@@ -104,8 +105,9 @@ Rules:
 4. If analyze=true, also set show_all_heroes=true.
 5. For hero_pick_rate, default to ranking + quick + all unless the user clearly asks for history or another mode/rank.
 6. For hero_perk, only pass the hero name or heroGuid.
-7. For patch_notes, default to latest.
-8. If the user asks for one player tool but the target is missing, still choose the best tool instead of chatting.
+7. For hero_wiki, only pass hero plus an optional question about that hero.
+8. For patch_notes, default to latest.
+9. If the user asks for one player tool but the target is missing, still choose the best tool instead of chatting.
 """.strip()
 
 
@@ -293,6 +295,7 @@ class AutoRouteModule:
             "competitive_strength": self._build_competitive_strength_selection,
             "hero_pick_rate": self._build_hero_pick_rate_selection,
             "hero_perk": self._build_hero_perk_selection,
+            "hero_wiki": self._build_hero_wiki_selection,
             "ow_esports": self._build_ow_esports_selection,
             "ow_shop": self._build_ow_shop_selection,
             "patch_notes": self._build_patch_notes_selection,
@@ -467,6 +470,22 @@ class AutoRouteModule:
                         "type": "object",
                         "properties": {
                             "hero": {"type": "string"},
+                        },
+                        "required": ["hero"],
+                        "additionalProperties": False,
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "hero_wiki",
+                    "description": "Query a hero wiki overview, optionally with one question about that hero.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "hero": {"type": "string"},
+                            "question": {"type": "string"},
                         },
                         "required": ["hero"],
                         "additionalProperties": False,
@@ -703,6 +722,26 @@ class AutoRouteModule:
             endpoint="/api/v2/ow-hero-perk/image",
             endpoint_mode="image",
             payload={"hero": hero},
+        )
+
+    def _build_hero_wiki_selection(self, arguments: Dict[str, Any]) -> AutoRouteSelection:
+        hero = _normalize_tool_text(arguments.get("hero"))
+        question = _normalize_tool_text(arguments.get("question"))
+        if not hero:
+            raise ModuleError(
+                error="auto_route_invalid_arguments",
+                message="hero is required for hero_wiki.",
+                status_code=400,
+            )
+        payload: Dict[str, Any] = {"hero": hero}
+        if question:
+            payload["question"] = question
+        return AutoRouteSelection(
+            tool_name="hero_wiki",
+            module_name="ow_hero_wiki",
+            endpoint="/api/v2/ow_hero_wiki/image",
+            endpoint_mode="image",
+            payload=payload,
         )
 
     def _build_ow_esports_selection(self, arguments: Dict[str, Any]) -> AutoRouteSelection:

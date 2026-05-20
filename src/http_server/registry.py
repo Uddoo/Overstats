@@ -472,6 +472,30 @@ HTTP_UI_MODULE_SPECS: Tuple[HTTPUIModuleSpec, ...] = (
         ),
     ),
     HTTPUIModuleSpec(
+        id="ow-hero-wiki",
+        title="英雄百科",
+        description="查看英雄维基资料卡，或结合当前英雄资料进行问答。",
+        json_endpoint="/api/v2/ow_hero_wiki",
+        image_endpoint="/api/v2/ow_hero_wiki/image",
+        requires_target=False,
+        fields=(
+            HTTPUIFieldSpec(
+                id="hero",
+                label="英雄",
+                payload_key="hero",
+                placeholder="例如：猎空 / Tracer / heroGuid",
+                help_text="支持中文名、英文名、常见别名，以及 hero?问题 的旧格式。",
+            ),
+            HTTPUIFieldSpec(
+                id="question",
+                label="问题",
+                payload_key="question",
+                placeholder="可选，例如：闪现最多有几层？",
+                help_text="留空时返回结构化资料卡；填写后返回资料并附带问答结果。",
+            ),
+        ),
+    ),
+    HTTPUIModuleSpec(
         id="dashen-summary-today",
         title="今日总结",
         description="生成今日总结；周总结会更慢一些。",

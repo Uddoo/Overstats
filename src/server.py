@@ -36,6 +36,9 @@ try:
     )
     from overstats.src.modules.dashen_summary import DashenSummaryQuery, dashen_summary_module
     from overstats.src.modules.ow_hero_perk import OWHeroPerkQuery, ow_hero_perk_module
+    from overstats.src.modules.ow_hero_wiki import ow_hero_wiki_module
+    from overstats.src.modules.ow_hero_wiki.render import render_hero_wiki_error
+    from overstats.src.modules.ow_hero_wiki.requests import OWHeroWikiQuery
     from overstats.src.modules.ow_hero_pick_rate import OWHeroPickRateQuery, ow_hero_pick_rate_module
     from overstats.src.modules.ow_esports import ow_esports_module
     from overstats.src.modules.ow_guess import OWGuessQuery, ow_guess_module
@@ -74,6 +77,9 @@ except ModuleNotFoundError:
     )
     from src.modules.dashen_summary import DashenSummaryQuery, dashen_summary_module
     from src.modules.ow_hero_perk import OWHeroPerkQuery, ow_hero_perk_module
+    from src.modules.ow_hero_wiki import ow_hero_wiki_module
+    from src.modules.ow_hero_wiki.render import render_hero_wiki_error
+    from src.modules.ow_hero_wiki.requests import OWHeroWikiQuery
     from src.modules.ow_hero_pick_rate import OWHeroPickRateQuery, ow_hero_pick_rate_module
     from src.modules.ow_esports import ow_esports_module
     from src.modules.ow_guess import OWGuessQuery, ow_guess_module
@@ -151,6 +157,13 @@ def _build_ow_hero_pick_rate_query(payload: Dict[str, object]) -> OWHeroPickRate
 def _build_ow_hero_perk_query(payload: Dict[str, object]) -> OWHeroPerkQuery:
     return OWHeroPerkQuery(
         hero=str(payload.get("hero") or "").strip(),
+    )
+
+
+def _build_ow_hero_wiki_query(payload: Dict[str, object]) -> OWHeroWikiQuery:
+    return OWHeroWikiQuery(
+        hero=str(payload.get("hero") or "").strip(),
+        question=str(payload.get("question") or "").strip(),
     )
 
 
@@ -471,6 +484,7 @@ class OverstatsCoreService:
             "/api/v2/dashen-quick-strength/image": lambda: self.handle_dashen_quick_strength_image(selection.payload),
             "/api/v2/dashen-competitive-strength/image": lambda: self.handle_dashen_competitive_strength_image(selection.payload),
             "/api/v2/ow-hero-perk/image": lambda: self.handle_ow_hero_perk_image(selection.payload),
+            "/api/v2/ow_hero_wiki/image": lambda: self.handle_ow_hero_wiki_image(selection.payload),
             "/api/v2/ow-hero-pick-rate/image": lambda: self.handle_ow_hero_pick_rate_image(selection.payload),
             "/api/v2/ow-esports/image": lambda: self.handle_ow_esports_image(selection.payload),
             "/api/v2/ow-shop/image": lambda: self.handle_ow_shop_image(selection.payload),
@@ -487,6 +501,7 @@ class OverstatsCoreService:
             "/api/v2/dashen-quick-strength": lambda: self.handle_dashen_quick_strength(selection.payload),
             "/api/v2/dashen-competitive-strength": lambda: self.handle_dashen_competitive_strength(selection.payload),
             "/api/v2/ow-hero-perk": lambda: self.handle_ow_hero_perk(selection.payload),
+            "/api/v2/ow_hero_wiki": lambda: self.handle_ow_hero_wiki(selection.payload),
             "/api/v2/ow-hero-pick-rate": lambda: self.handle_ow_hero_pick_rate(selection.payload),
             "/api/v2/ow-esports": lambda: self.handle_ow_esports(selection.payload),
             "/api/v2/ow-shop": lambda: self.handle_ow_shop(selection.payload),
@@ -631,6 +646,25 @@ class OverstatsCoreService:
             raise ModuleError(
                 error="render_failed",
                 message="Hero perk image was not generated.",
+                status_code=500,
+            )
+        return result.image.content
+
+    async def handle_ow_hero_wiki(self, payload: Dict[str, object]) -> Dict[str, object]:
+        query = _build_ow_hero_wiki_query(payload)
+        result = await ow_hero_wiki_module.query_hero(query, render=False)
+        return result.to_dict()
+
+    async def handle_ow_hero_wiki_image(self, payload: Dict[str, object]) -> bytes:
+        query = _build_ow_hero_wiki_query(payload)
+        try:
+            result = await ow_hero_wiki_module.query_hero(query, render=True)
+        except ModuleError as exc:
+            return render_hero_wiki_error("英雄维基不可用", exc.message).content
+        if not result.image:
+            raise ModuleError(
+                error="render_failed",
+                message="Hero wiki image was not generated.",
                 status_code=500,
             )
         return result.image.content
@@ -1685,6 +1719,14 @@ def create_server(config: APIConfig) -> ThreadingHTTPServer:
                 self._handle_ow_hero_perk_post()
                 return
 
+            if path in {"/api/v2/ow_hero_wiki/image", "/api/v2/ow-hero-wiki/image"}:
+                self._handle_ow_hero_wiki_image_post()
+                return
+
+            if path in {"/api/v2/ow_hero_wiki", "/api/v2/ow-hero-wiki"}:
+                self._handle_ow_hero_wiki_post()
+                return
+
             if path == "/api/v2/ow-hero-pick-rate/image":
                 self._handle_ow_hero_pick_rate_image_post()
                 return
@@ -2589,6 +2631,96 @@ def create_server(config: APIConfig) -> ThreadingHTTPServer:
 
             try:
                 image_body = async_runner.run(service.handle_ow_hero_perk_image(payload))
+            except ModuleError as exc:
+                self._send_json(
+                    HTTPStatus(exc.status_code),
+                    {
+                        "ok": False,
+                        "error": exc.error,
+                        "message": exc.message,
+                        "hint": exc.hint,
+                        "details": exc.details,
+                    },
+                )
+                return
+            except Exception as exc:
+                self._send_json(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    {
+                        "ok": False,
+                        "error": "internal_error",
+                        "message": "Internal server error. See details.",
+                        "details": {
+                            "exception": type(exc).__name__,
+                            "message": str(exc),
+                        },
+                    },
+                )
+                return
+
+            self._send_binary(HTTPStatus.OK, image_body, "image/png")
+
+        def _handle_ow_hero_wiki_post(self) -> None:
+            try:
+                payload = self._read_json_body()
+            except ValueError as exc:
+                self._send_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {
+                        "ok": False,
+                        "error": "invalid_json",
+                        "message": str(exc),
+                    },
+                )
+                return
+
+            try:
+                result = async_runner.run(service.handle_ow_hero_wiki(payload))
+            except ModuleError as exc:
+                self._send_json(
+                    HTTPStatus(exc.status_code),
+                    {
+                        "ok": False,
+                        "error": exc.error,
+                        "message": exc.message,
+                        "hint": exc.hint,
+                        "details": exc.details,
+                    },
+                )
+                return
+            except Exception as exc:
+                self._send_json(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    {
+                        "ok": False,
+                        "error": "internal_error",
+                        "message": "Internal server error. See details.",
+                        "details": {
+                            "exception": type(exc).__name__,
+                            "message": str(exc),
+                        },
+                    },
+                )
+                return
+
+            self._send_json(HTTPStatus.OK, result)
+
+        def _handle_ow_hero_wiki_image_post(self) -> None:
+            try:
+                payload = self._read_json_body()
+            except ValueError as exc:
+                self._send_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {
+                        "ok": False,
+                        "error": "invalid_json",
+                        "message": str(exc),
+                    },
+                )
+                return
+
+            try:
+                image_body = async_runner.run(service.handle_ow_hero_wiki_image(payload))
             except ModuleError as exc:
                 self._send_json(
                     HTTPStatus(exc.status_code),

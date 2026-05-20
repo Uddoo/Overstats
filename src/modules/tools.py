@@ -108,6 +108,12 @@ register_module(
 )
 
 register_module(
+    "ow_hero_wiki",
+    "overstats.src.modules.ow_hero_wiki",
+    "Hero wiki overview and hero-specific Q&A reader with structured rendering.",
+)
+
+register_module(
     "ow_shop",
     "overstats.src.modules.ow_shop",
     "Overwatch shop fetcher, cache manager, and PIL renderer.",
