@@ -17,6 +17,11 @@ try:
     from overstats.src.db.player_identity import PlayerIdentityRecorder
     from overstats.src.db.request_metrics import RequestMetricsRecorder, normalize_request_metric_url
     from overstats.src.modules.errors import ModuleError
+    from overstats.src.modules.blizzard_player_search import (
+        BlizzardPlayerSearchQuery,
+        blizzard_player_search_module,
+    )
+    from overstats.src.modules.blizzard_profile import BlizzardProfileQuery, blizzard_profile_module
     from overstats.src.modules.dashen_profile import DashenProfileQuery, dashen_profile_module
     from overstats.src.modules.dashen_hero_treemap import (
         DashenHeroTreemapQuery,
@@ -64,6 +69,11 @@ except ModuleNotFoundError:
     from src.db.player_identity import PlayerIdentityRecorder
     from src.db.request_metrics import RequestMetricsRecorder, normalize_request_metric_url
     from src.modules.errors import ModuleError
+    from src.modules.blizzard_player_search import (
+        BlizzardPlayerSearchQuery,
+        blizzard_player_search_module,
+    )
+    from src.modules.blizzard_profile import BlizzardProfileQuery, blizzard_profile_module
     from src.modules.dashen_profile import DashenProfileQuery, dashen_profile_module
     from src.modules.dashen_hero_treemap import (
         DashenHeroTreemapQuery,
@@ -189,6 +199,22 @@ def _build_dashen_hero_treemap_query(payload: Dict[str, object]) -> DashenHeroTr
         season=_coerce_optional_int(payload, "season", "season_c"),
         include_previous_season=_coerce_bool(payload.get("include_previous_season"), True),
         mode=mode,
+    )
+
+
+def _build_blizzard_profile_query(payload: Dict[str, object]) -> BlizzardProfileQuery:
+    return BlizzardProfileQuery(
+        player_id=str(
+            payload.get("player_id")
+            or payload.get("playerId")
+            or payload.get("name")
+            or payload.get("query")
+            or payload.get("target")
+            or ""
+        ).strip(),
+        blizzard_id=str(payload.get("blizzard_id") or payload.get("blizzardId") or "").strip(),
+        locale=str(payload.get("locale") or "").strip(),
+        mode=_coerce_profile_render_mode(payload),
     )
 
 
@@ -336,6 +362,18 @@ class OverstatsCoreService:
         return await self.dashen_request_queue.run(
             "profile_image",
             lambda: self._handle_dashen_profile_image(payload),
+        )
+
+    async def handle_blizzard_profile(self, payload: Dict[str, object]) -> Dict[str, object]:
+        return await self.dashen_request_queue.run(
+            "blizzard_profile",
+            lambda: self._handle_blizzard_profile(payload),
+        )
+
+    async def handle_blizzard_profile_image(self, payload: Dict[str, object]) -> bytes:
+        return await self.dashen_request_queue.run(
+            "blizzard_profile_image",
+            lambda: self._handle_blizzard_profile_image(payload),
         )
 
     async def handle_dashen_hero_treemap(self, payload: Dict[str, object]) -> Dict[str, object]:
@@ -520,6 +558,85 @@ class OverstatsCoreService:
             "candidates": [str(item["battletag"]) for item in matches if item.get("battletag")],
             "matches": matches,
         }
+
+    async def handle_blizzard_player_search(self, payload: Dict[str, object]) -> Dict[str, object]:
+        lookup_name = str(
+            payload.get("name")
+            or payload.get("player_id")
+            or payload.get("playerId")
+            or payload.get("query")
+            or payload.get("target")
+            or ""
+        ).strip()
+        limit = _coerce_optional_int(payload, "limit")
+        if limit is None:
+            limit = 20
+        offset = _coerce_optional_int(payload, "offset")
+        if offset is None:
+            offset = 0
+        query = BlizzardPlayerSearchQuery(
+            name=lookup_name,
+            locale=str(payload.get("locale") or "").strip(),
+            order_by=str(payload.get("order_by") or payload.get("orderBy") or "").strip(),
+            offset=offset,
+            limit=limit,
+            blizzard_id=str(payload.get("blizzard_id") or payload.get("blizzardId") or "").strip(),
+        )
+        result = await blizzard_player_search_module.search(query)
+        entries = [item.to_dict() for item in result.results]
+        return {
+            "ok": True,
+            "query": {
+                "name": result.query.name,
+                "locale": result.query.locale,
+                "order_by": result.query.order_by,
+                "offset": result.query.offset,
+                "limit": result.query.limit,
+                "blizzard_id": result.query.blizzard_id,
+            },
+            "total": result.total,
+            "count": len(entries),
+            "results": entries,
+            "resolved": result.resolved.to_dict() if result.resolved else None,
+        }
+
+    async def _handle_blizzard_profile(self, payload: Dict[str, object]) -> Dict[str, object]:
+        query = _build_blizzard_profile_query(payload)
+        result = await blizzard_profile_module.query_profile(query, render=False)
+        return {
+            "ok": True,
+            "query": {
+                "player_id": result.query.player_id,
+                "blizzard_id": result.query.blizzard_id,
+                "locale": result.query.locale,
+                "mode": result.query.mode,
+            },
+            "resolved": {
+                "player_id": result.resolved_player_id,
+                "battletag": result.battletag,
+                "battlenum": result.battlenum,
+                "display_name": result.parsed.summary.display_name,
+                "blizzard_id": result.resolved_blizzard_id,
+                "career_url": result.career_url,
+            },
+            "search": {
+                "count": len(result.search_results),
+                "results": [item.to_dict() for item in result.search_results],
+                "resolved": result.resolved_entry.to_dict() if result.resolved_entry else None,
+            } if (result.search_results or result.resolved_entry) else None,
+            "profile": result.parsed.to_dict(),
+        }
+
+    async def _handle_blizzard_profile_image(self, payload: Dict[str, object]) -> bytes:
+        query = _build_blizzard_profile_query(payload)
+        result = await blizzard_profile_module.query_profile_image(query)
+        if not result.image:
+            raise ModuleError(
+                error="render_failed",
+                message="Blizzard profile image was not generated.",
+                status_code=500,
+            )
+        return result.image.content
 
     async def handle_auto_route(self, payload: Dict[str, object]) -> Dict[str, object]:
         text = str(payload.get("text") or "").strip()
@@ -1773,6 +1890,18 @@ def create_server(config: APIConfig) -> ThreadingHTTPServer:
                 self._handle_player_identity_search_post()
                 return
 
+            if path == "/api/v2/blizzard-player-search":
+                self._handle_blizzard_player_search_post()
+                return
+
+            if path == "/api/v2/blizzard-profile/image":
+                self._handle_blizzard_profile_image_post()
+                return
+
+            if path == "/api/v2/blizzard-profile":
+                self._handle_blizzard_profile_post()
+                return
+
             if path == "/api/v2/patch-notes/image":
                 self._handle_patch_notes_image_post()
                 return
@@ -2057,6 +2186,141 @@ def create_server(config: APIConfig) -> ThreadingHTTPServer:
                 return
 
             self._send_json(HTTPStatus.OK, result)
+
+        def _handle_blizzard_player_search_post(self) -> None:
+            try:
+                payload = self._read_json_body()
+            except ValueError as exc:
+                self._send_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {
+                        "ok": False,
+                        "error": "invalid_json",
+                        "message": str(exc),
+                    },
+                )
+                return
+
+            try:
+                result = async_runner.run(service.handle_blizzard_player_search(payload))
+            except ModuleError as exc:
+                self._send_json(
+                    HTTPStatus(exc.status_code),
+                    {
+                        "ok": False,
+                        "error": exc.error,
+                        "message": exc.message,
+                        "hint": exc.hint,
+                        "details": exc.details,
+                    },
+                )
+                return
+            except Exception as exc:
+                self._send_json(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    {
+                        "ok": False,
+                        "error": "internal_error",
+                        "message": "Internal server error. See details.",
+                        "details": {
+                            "exception": type(exc).__name__,
+                            "message": str(exc),
+                        },
+                    },
+                )
+                return
+
+            self._send_json(HTTPStatus.OK, result)
+
+        def _handle_blizzard_profile_post(self) -> None:
+            try:
+                payload = self._read_json_body()
+            except ValueError as exc:
+                self._send_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {
+                        "ok": False,
+                        "error": "invalid_json",
+                        "message": str(exc),
+                    },
+                )
+                return
+
+            try:
+                result = async_runner.run(service.handle_blizzard_profile(payload))
+            except ModuleError as exc:
+                self._send_json(
+                    HTTPStatus(exc.status_code),
+                    {
+                        "ok": False,
+                        "error": exc.error,
+                        "message": exc.message,
+                        "hint": exc.hint,
+                        "details": exc.details,
+                    },
+                )
+                return
+            except Exception as exc:
+                self._send_json(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    {
+                        "ok": False,
+                        "error": "internal_error",
+                        "message": "Internal server error. See details.",
+                        "details": {
+                            "exception": type(exc).__name__,
+                            "message": str(exc),
+                        },
+                    },
+                )
+                return
+
+            self._send_json(HTTPStatus.OK, result)
+
+        def _handle_blizzard_profile_image_post(self) -> None:
+            try:
+                payload = self._read_json_body()
+            except ValueError as exc:
+                self._send_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {
+                        "ok": False,
+                        "error": "invalid_json",
+                        "message": str(exc),
+                    },
+                )
+                return
+
+            try:
+                image_body = async_runner.run(service.handle_blizzard_profile_image(payload))
+            except ModuleError as exc:
+                self._send_json(
+                    HTTPStatus(exc.status_code),
+                    {
+                        "ok": False,
+                        "error": exc.error,
+                        "message": exc.message,
+                        "hint": exc.hint,
+                        "details": exc.details,
+                    },
+                )
+                return
+            except Exception as exc:
+                self._send_json(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    {
+                        "ok": False,
+                        "error": "internal_error",
+                        "message": "Internal server error. See details.",
+                        "details": {
+                            "exception": type(exc).__name__,
+                            "message": str(exc),
+                        },
+                    },
+                )
+                return
+
+            self._send_binary(HTTPStatus.OK, image_body, "image/png")
 
         def _handle_auto_route_post(self) -> None:
             try:

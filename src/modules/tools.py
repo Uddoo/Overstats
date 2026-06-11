@@ -42,6 +42,18 @@ register_module(
 )
 
 register_module(
+    "blizzard_player_search",
+    "overstats.src.modules.blizzard_player_search",
+    "Search public international Overwatch player profiles from Blizzard.",
+)
+
+register_module(
+    "blizzard_profile",
+    "overstats.src.modules.blizzard_profile",
+    "Fetch public international Blizzard career profiles and render them in dashen-profile style.",
+)
+
+register_module(
     "dashen_match",
     "overstats.src.modules.dashen_match",
     "Dashen match list and detail data orchestration.",

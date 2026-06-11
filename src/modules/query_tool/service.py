@@ -123,6 +123,33 @@ def get_cached_asset_path(url: str, category: str = "misc") -> Optional[Path]:
     return None
 
 
+def cache_query_tool_asset_bytes(url: str, data: bytes, category: str = "misc") -> Optional[Path]:
+    normalized = _normalize_url(url)
+    if not normalized or not data:
+        return None
+
+    existing_path = get_cached_asset_path(normalized, category)
+    if existing_path is not None and existing_path.exists():
+        return existing_path
+
+    folder = QUERY_TOOL_ASSET_DIR / (category or "misc")
+    folder.mkdir(parents=True, exist_ok=True)
+    extension = _guess_asset_extension(normalized, "")
+    target_path = folder / f"{_asset_hash(normalized)}{extension}"
+    fd, temp_path = tempfile.mkstemp(prefix=f"{target_path.stem}.", suffix=".tmp", dir=str(folder))
+    try:
+        with os.fdopen(fd, "wb") as file:
+            file.write(data)
+        Path(temp_path).replace(target_path)
+        return target_path
+    except Exception:
+        try:
+            Path(temp_path).unlink(missing_ok=True)
+        except OSError:
+            pass
+        return None
+
+
 def ensure_query_tool_assets(config: Dict[str, Any] | None = None) -> Dict[str, Any]:
     config = config or read_query_tool(default={})
     assets = list(_iter_unique_asset_urls(config))

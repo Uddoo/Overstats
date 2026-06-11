@@ -187,3 +187,6 @@ python -m unittest overstats.test.test_dashen_summary_today
 - 检查日志、截图、测试数据中是否包含敏感标识
 
 `overstats/config/config.py` 是本地运行配置文件，不适合作为公开仓库中的密钥存储位置。
+
+
+外服数据获取参考项目：https://github.com/TeKrop/overfast-api

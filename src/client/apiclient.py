@@ -12,6 +12,7 @@ import tempfile
 import threading
 import time
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, TYPE_CHECKING
+from urllib.parse import quote
 
 import httpx
 
@@ -93,6 +94,8 @@ JD_EQ_COMMUNITY_URL = (
     "https://appapi.cc.163.com/v1/amandbop/bigdata/"
     "community_play_staduim_recommend_mods_data"
 )
+BLIZZARD_HOST = "https://overwatch.blizzard.com"
+DEFAULT_BLIZZARD_LOCALE = "zh-tw"
 OVERFAST_PLAYERS_URL = "https://overfast-api.tekrop.fr/players"
 PANDASCORE_OW_MATCHES_URL = "https://api.pandascore.co/ow/matches"
 REMOTE_IMAGE_CACHE_DIR = Path(__file__).resolve().parents[2] / "res" / "cache_img"
@@ -918,6 +921,28 @@ class DashenAPIClient:
         auth_dts_override: Optional[int] = None,
         **kwargs: Any,
     ) -> Dict[str, Any]:
+        payload = await self.request_payload(
+            method,
+            url,
+            use_proxy=use_proxy,
+            credential=credential,
+            auth_dts_override=auth_dts_override,
+            **kwargs,
+        )
+        if not isinstance(payload, dict):
+            raise TypeError(f"Expected JSON object response from {url}, got {type(payload).__name__}")
+        return payload
+
+    async def request_payload(
+        self,
+        method: str,
+        url: str,
+        *,
+        use_proxy: bool = False,
+        credential: Optional[DashenCredential] = None,
+        auth_dts_override: Optional[int] = None,
+        **kwargs: Any,
+    ) -> Any:
         client = self.proxy_client if use_proxy else self.netease_client
         request_kwargs = dict(kwargs)
         metric_url = _metric_url_for_request(url, request_kwargs.get("params"))
@@ -991,6 +1016,49 @@ class DashenAPIClient:
             json=payload,
             timeout=SEARCH_BNET_ACCOUNT_TIMEOUT,
         )
+
+    async def search_blizzard_accounts(
+        self,
+        name: str,
+        *,
+        locale: str = DEFAULT_BLIZZARD_LOCALE,
+    ) -> Any:
+        normalized_name = str(name or "").replace("#", "-").strip()
+        search_name = normalized_name.split("-", 1)[0].strip()
+        normalized_locale = str(locale or DEFAULT_BLIZZARD_LOCALE).strip().lower().replace("_", "-")
+        encoded_name = quote(search_name, safe="")
+        url = f"{BLIZZARD_HOST}/{normalized_locale}/search/account-by-name/{encoded_name}/"
+        return await self.request_payload(
+            "GET",
+            url,
+            use_proxy=True,
+            headers={"Accept": "application/json"},
+        )
+
+    async def fetch_blizzard_career_page(
+        self,
+        player_id: str,
+        *,
+        locale: str = "en-us",
+    ) -> tuple[str, str, int]:
+        normalized_player_id = str(player_id or "").replace("#", "-").strip()
+        normalized_locale = str(locale or "en-us").strip().lower().replace("_", "-") or "en-us"
+        encoded_player_id = quote(normalized_player_id, safe="%|")
+        url = f"{BLIZZARD_HOST}/{normalized_locale}/career/{encoded_player_id}/"
+        metric_url = _metric_url_for_request(url)
+        try:
+            response = await self.proxy_client.request(
+                "GET",
+                url,
+                headers={"Accept": "text/html,application/xhtml+xml"},
+                follow_redirects=True,
+            )
+        except Exception:
+            await self._record_upstream_metric(metric_url, False)
+            raise
+
+        await self._record_upstream_metric(str(response.request.url), _is_success_status(response.status_code))
+        return response.text, str(response.url), int(response.status_code)
 
     async def query_card(self, customer_token: str) -> Dict[str, Any]:
         return await self.request_json(

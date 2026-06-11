@@ -323,6 +323,9 @@ def _draw_race_progress(draw: Any, race_progress: Dict[str, Any] | None, fonts: 
 
 
 def _draw_role_panel(image: Any, draw: Any, entries: Sequence[RolePanelEntry], fonts: Dict[str, Any]) -> None:
+    if not entries:
+        return
+
     role_map = {entry.role_type: entry for entry in entries}
     for role_type, y_pos in (("tank", 817), ("dps", 891), ("healer", 964), ("open", 1038)):
         entry = role_map.get(role_type)
@@ -560,13 +563,14 @@ def _draw_top_heroes(
         center_x = slot_x + 64
         hero_info = _find_hero(config, row.hero_guid)
         hero_name = str(hero_info.get("name") or row.payload.get("heroName") or row.hero_guid)
-        ring_color = _hero_ring_color(config, hero_name)
+        ring_color = _resolve_row_hero_color(config, row, hero_name)
+        title_text = hero_name if row.hero_level <= 0 else f"{hero_name} {row.hero_level}{STR_LEVEL_SUFFIX}"
 
         _draw_centered_mixed_text_with_shadow(
             draw,
             center_x,
             610,
-            f"{hero_name} {row.hero_level}{STR_LEVEL_SUFFIX}",
+            title_text,
             label_font=fonts["font_cn_small"],
             number_font=fonts["font_cn_small"],
             fill="#20283C",
@@ -585,6 +589,7 @@ def _draw_top_heroes(
 
         icon = None
         for candidate_url in (
+            row.payload.get("heroIconUrl"),
             hero_info.get("smallIconUrl"),
             hero_info.get("ddHeroIcon"),
             hero_info.get("icon"),
@@ -596,7 +601,7 @@ def _draw_top_heroes(
             icon = _resize_image(crop_to_circle(icon, 15, ring_color), (128, 128))
             image.paste(icon, (slot_x, 448), icon)
 
-        tier_icon = _load_level_tier_icon(_hero_level_tier(row.hero_level))
+        tier_icon = _load_level_tier_icon(_hero_level_tier(row.hero_level)) if row.hero_level > 0 else None
         if tier_icon is not None:
             tier_icon = _resize_image(tier_icon, (80, 80))
             image.paste(tier_icon, (slot_x + 25, 538), tier_icon)
@@ -621,8 +626,8 @@ def _draw_hero_usage_block(
     for index, row in enumerate(rows):
         hero_info = _find_hero(config, row.hero_guid)
         hero_name = str(hero_info.get("name") or row.payload.get("heroName") or row.hero_guid)
-        hero_icon_url = str(hero_info.get("icon") or "")
-        ring_color = _hero_ring_color(config, hero_name)
+        hero_icon_url = str(hero_info.get("icon") or row.payload.get("heroIconUrl") or "")
+        ring_color = _resolve_row_hero_color(config, row, hero_name)
         y = 795 + index * 43
 
         base_bar = create_gradient_playtime_bar(620, 40, 5, (28, 34, 56), 1)
@@ -635,12 +640,13 @@ def _draw_hero_usage_block(
             icon = _resize_image(icon, (40, 40))
             image.paste(icon, (60, y))
 
-        tier_icon = _load_level_tier_icon(_hero_level_tier(row.hero_level))
+        tier_icon = _load_level_tier_icon(_hero_level_tier(row.hero_level)) if row.hero_level > 0 else None
         if tier_icon is not None:
             tier_icon = _resize_image(tier_icon, (32, 32))
             image.paste(tier_icon, (110, 799 + index * 43), tier_icon)
 
-        _draw_mixed_text(draw, 140, 802 + index * 43, f"{row.hero_level}{STR_LEVEL_SUFFIX}", label_font=fonts["font_cn_small"], number_font=fonts["font_cn_small"], fill="gold")
+        if row.hero_level > 0:
+            _draw_mixed_text(draw, 140, 802 + index * 43, f"{row.hero_level}{STR_LEVEL_SUFFIX}", label_font=fonts["font_cn_small"], number_font=fonts["font_cn_small"], fill="gold")
 
         if row.rank_overlay is not None:
             score_box_x = 523
@@ -1278,6 +1284,19 @@ def _hero_ring_color(config: Dict[str, Any], hero_name: str) -> tuple[int, int, 
                 except Exception:
                     break
     return (128, 128, 128, 255)
+
+
+def _resolve_row_hero_color(config: Dict[str, Any], row: HeroUsageRow, hero_name: str) -> tuple[int, int, int, int]:
+    resolved = _hero_ring_color(config, hero_name)
+    if resolved != (128, 128, 128, 255):
+        return resolved
+    payload_color = str(row.payload.get("heroColor") or row.payload.get("hero_color") or "").strip()
+    if not payload_color:
+        return resolved
+    try:
+        return hex_to_rgba(payload_color)
+    except Exception:
+        return resolved
 
 
 def _measure_text_width(draw: Any, text: str, font: Any) -> int:
