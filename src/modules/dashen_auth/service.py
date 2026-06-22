@@ -5,10 +5,8 @@ from typing import Any, Awaitable, Callable, Dict, Iterable, Mapping, Optional
 
 try:
     from overstats.config import get_dashen_client_config
-    from overstats.src.client.apiclient import dashen_api_client
 except ModuleNotFoundError:
     from config import get_dashen_client_config
-    from src.client.apiclient import dashen_api_client
 
 
 PLACEHOLDER_TOKENS = {"replace-with-your-token", "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", "token-a", "token-b"}
@@ -60,6 +58,18 @@ def _auth_failure_from_payload(payload: Any) -> bool:
     return any(word in message for word in auth_words)
 
 
+def _safe_exception_details(exc: Exception, message: str) -> Dict[str, str]:
+    return {"exception": type(exc).__name__, "message": message}
+
+
+def _get_dashen_api_client() -> Any:
+    try:
+        from overstats.src.client.apiclient import dashen_api_client
+    except ModuleNotFoundError:
+        from src.client.apiclient import dashen_api_client
+    return dashen_api_client
+
+
 class DashenAuthService:
     def __init__(
         self,
@@ -79,7 +89,7 @@ class DashenAuthService:
                 "state": "credentials_missing",
                 "message": "Dashen credentials are not configured.",
                 "error": "dashen_auth_config_error",
-                "details": {"exception": type(exc).__name__, "message": str(exc)},
+                "details": _safe_exception_details(exc, "Dashen credential configuration could not be loaded."),
                 "accounts": [],
             }
 
@@ -129,14 +139,19 @@ class DashenAuthService:
         try:
             payload = await self._run_probe()
         except Exception as exc:
-            message = str(exc)
-            if "401" in message or "403" in message or "token" in message.lower() or "auth" in message.lower():
+            exception_message = str(exc)
+            if (
+                "401" in exception_message
+                or "403" in exception_message
+                or "token" in exception_message.lower()
+                or "auth" in exception_message.lower()
+            ):
                 return {
                     "ok": False,
                     "state": "credentials_invalid",
                     "message": "Dashen credentials appear to be invalid or expired.",
                     "error": "dashen_auth_invalid",
-                    "details": {"exception": type(exc).__name__, "message": message},
+                    "details": _safe_exception_details(exc, "Dashen credential probe failed authentication."),
                     "accounts": current.get("accounts", []),
                 }
             return {
@@ -144,7 +159,7 @@ class DashenAuthService:
                 "state": "upstream_limited_or_unavailable",
                 "message": "Dashen upstream is unavailable or rate limited.",
                 "error": "dashen_upstream_unavailable",
-                "details": {"exception": type(exc).__name__, "message": message},
+                "details": _safe_exception_details(exc, "Dashen upstream probe failed before verification completed."),
                 "accounts": current.get("accounts", []),
             }
 
@@ -167,6 +182,7 @@ class DashenAuthService:
     async def _run_probe(self) -> Any:
         if self._probe_runner is not None:
             return await self._probe_runner()
+        dashen_api_client = _get_dashen_api_client()
         return await dashen_api_client.search_bnet_account(PROBE_BATTLE_TAG)
 
 
