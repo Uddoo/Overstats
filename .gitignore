@@ -4,9 +4,12 @@ AGENTS.md
 # Python bytecode
 *.pyc
 __pycache__/
+.venv/
 
 # Environment variables
 .env
+.env.local
+config/local_secrets.py
 
 # Database files (optional, if generated locally)
 *.db

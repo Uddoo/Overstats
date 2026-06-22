@@ -1,14 +1,38 @@
 from __future__ import annotations
 
+import os
+
+try:
+    from .local_secrets import DASHEN_ACCOUNTS as LOCAL_DASHEN_ACCOUNTS
+except ImportError:
+    LOCAL_DASHEN_ACCOUNTS = None
+
+
+def _dashen_accounts_from_env():
+    role_id = os.getenv("OVERSTATS_DASHEN_ROLE_ID", "").strip()
+    token = os.getenv("OVERSTATS_DASHEN_TOKEN", "").strip()
+    if not role_id or not token:
+        return None
+
+    return [
+        {
+            "name": os.getenv("OVERSTATS_DASHEN_ACCOUNT_NAME", "local-account"),
+            "role_id": role_id,
+            "token": token,
+        }
+    ]
+
+
 # ======================= Core Service ====================== #
 API_HOST = "127.0.0.1"
 API_PORT = 18080
 USE_STREAM_RESPONSE = True
 ENABLE_DATABASE_WRITE = True
+SKIP_QUERY_TOOL_ASSET_CHECK = True
 
 # ======================= Dashen Upstream ====================== #
 # Configure at least one account.
-DASHEN_ACCOUNTS = [
+DASHEN_ACCOUNTS = LOCAL_DASHEN_ACCOUNTS or _dashen_accounts_from_env() or [
     {
         "name": "account-1",
         "role_id": 123456789,

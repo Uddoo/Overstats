@@ -28,7 +28,7 @@ try:
         dashen_hero_treemap_module,
         normalize_treemap_mode,
     )
-    from overstats.src.modules.query_tool import ensure_query_tool_assets, load_query_tool
+    from overstats.src.modules.query_tool import ensure_query_tool_assets, load_query_tool, read_query_tool
     from overstats.src.modules.dashen_match import DashenMatchQuery, dashen_match_module
     from overstats.src.modules.dashen_sameplay import DashenSameplayQuery, dashen_sameplay_module
     from overstats.src.modules.dashen_rank_history import DashenRankHistoryQuery, dashen_rank_history_module
@@ -80,7 +80,7 @@ except ModuleNotFoundError:
         dashen_hero_treemap_module,
         normalize_treemap_mode,
     )
-    from src.modules.query_tool import ensure_query_tool_assets, load_query_tool
+    from src.modules.query_tool import ensure_query_tool_assets, load_query_tool, read_query_tool
     from src.modules.dashen_match import DashenMatchQuery, dashen_match_module
     from src.modules.dashen_sameplay import DashenSameplayQuery, dashen_sameplay_module
     from src.modules.dashen_rank_history import DashenRankHistoryQuery, dashen_rank_history_module
@@ -1803,16 +1803,20 @@ class AsyncRunner:
 
 
 def create_server(config: APIConfig) -> ThreadingHTTPServer:
-    query_tool_config = load_query_tool()
-    asset_status = ensure_query_tool_assets(query_tool_config)
-    print(
-        "[overstats] query_tool assets "
-        f"checked={asset_status['checked']} "
-        f"cached={asset_status.get('cached', 0)} "
-        f"downloaded={asset_status['downloaded']} "
-        f"failed={asset_status['failed']} "
-        f"dir={asset_status['asset_dir']}"
-    )
+    if config.skip_query_tool_asset_check:
+        query_tool_config = read_query_tool(default={})
+        print("[overstats] query_tool asset check skipped")
+    else:
+        query_tool_config = load_query_tool()
+        asset_status = ensure_query_tool_assets(query_tool_config)
+        print(
+            "[overstats] query_tool assets "
+            f"checked={asset_status['checked']} "
+            f"cached={asset_status.get('cached', 0)} "
+            f"downloaded={asset_status['downloaded']} "
+            f"failed={asset_status['failed']} "
+            f"dir={asset_status['asset_dir']}"
+        )
     service = OverstatsCoreService(
         dashen_max_concurrent_requests=config.dashen_max_concurrent_requests,
         dashen_max_accepted_requests=config.dashen_max_accepted_requests,

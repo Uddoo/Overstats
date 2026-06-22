@@ -67,6 +67,7 @@ class APIConfig:
     port: int
     use_stream_response: bool
     enable_database_write: bool
+    skip_query_tool_asset_check: bool
     dashen_max_concurrent_requests: int
     dashen_max_accepted_requests: int = 4
 
@@ -155,6 +156,10 @@ def get_api_config() -> APIConfig:
             config.USE_STREAM_RESPONSE,
         ),
         enable_database_write=is_database_write_enabled(),
+        skip_query_tool_asset_check=_read_bool_env(
+            "OVERSTATS_SKIP_QUERY_TOOL_ASSET_CHECK",
+            getattr(config, "SKIP_QUERY_TOOL_ASSET_CHECK", True),
+        ),
         dashen_max_concurrent_requests=_read_int_env(
             "OVERSTATS_DASHEN_MAX_CONCURRENT_REQUESTS",
             getattr(config, "DASHEN_MAX_CONCURRENT_REQUESTS", 2),
